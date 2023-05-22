@@ -294,56 +294,31 @@ class LearntFormantFilter(nn.Module):
         self.learnedbandwidth = learnedbandwidth
         self.temporal_invariant = temporal_invariant
         if dynamic:
-            # self.net_learnx = Comp_Spec_CNN_learnx(hidden_dim= 1,n_fft=self.nfilter)
             self.net_learnx = Comp_Spec_CNN_learnx_fromspec(
                 hidden_dim=nfft, n_fft=self.nfilter, reverse_order=reverse_order
-            )  # input is spectrogram
+            )
         else:
             self.x = torch.nn.Parameter(
                 torch.ones(1, 1, 1, self.nfilter)
-            )  # for dynamic filter shape  B x 1 x T x nfilter
+            )
 
         if learnedbandwidth:
             self.net_learn_band = Comp_Spec_CNN_learnbandwidth(hidden_dim=1)
 
     def forward(self, fi, bi, f_sampling=None, spec=None):
-        # fi,bi: Bx1xT; f_sampling: BxkxT
-        # out: Bx1xTxF
-        # Use softmax and cumulative sum to create bell shape filter
         if self.dynamic:
-            # self.x = self.net_learnx(fi)
-            # 2022.2.28: we use spectrogram dependent for multi-user training!
-            # could do time invariant vector or time variant
             self.x = self.net_learnx(spec)
-            # print ('dynamic', self.x.shape)
             if self.temporal_invariant:
-                # replicate
-                # print ('temporal_invariant')
-                # print (self.x.shape)
                 self.x = self.x.max(-2)[0]
-                # print (self.x.shape)
                 self.x = self.x.unsqueeze(dim=-2)
-                # print (self.x.shape)
-            else:
-                # spec form
-                pass
-            # the output should be B,1,T,nfliter
         x1 = F.softmax(self.x[:, :, :, : self.nfilter // 2], dim=-1)
         x2 = F.softmax(self.x[:, :, :, self.nfilter // 2 :], dim=-1)
         x1_cum = torch.cumsum(x1, dim=-1)
         x2_cum = torch.flip(torch.cumsum(x2, dim=-1), [-1])
         x_cum = torch.cat((x1_cum, x2_cum), -1)
-        # x1 = F.softmax(self.x[:,:,:,:self.nfilter//2], dim=-1)
-        # x2 = -F.softmax(self.x[:,:,:,self.nfilter//2:], dim=-1)
-        # x1_cum = torch.cumsum(x1, dim=-1)
-        # x2_cum = 1+torch.cumsum(x2, dim=-1)
-        # x_cum = torch.cat((x1_cum, x2_cum), -1)
         if self.learnedbandwidth and not self.noise:
             bi = self.net_learn_band(fi)
         self.x_cum = x_cum
-        # print ('formant filter',self.x.shape, x1.shape, x2.shape,x1_cum.shape, x2_cum.shape, x_cum.shape, bi.shape, fi.shape, )
-        # Calculate bandwidth b_x
-        # Find 3db point position of left part
         x1_3db_value = x1_cum.max() / np.sqrt(2.0)
         _, x1_3db_idxs = torch.abs((x1_cum - x1_3db_value)).topk(2, -1, False)
         x1_3db_values0 = (x1_cum[0, 0, 0, x1_3db_idxs[0, 0, 0, 0]] - x1_3db_value).abs()
@@ -351,16 +326,13 @@ class LearntFormantFilter(nn.Module):
         x1_3db_idx = x1_3db_idxs[0, 0, 0, 0].float() + x1_3db_values0 / (
             x1_3db_values0 + x1_3db_values1
         ) * (x1_3db_idxs[0, 0, 0, 1].float() - x1_3db_idxs[0, 0, 0, 0].float())
-        # Find 3db point position of right part
         x2_3db_value = x2_cum.max() / np.sqrt(2.0)
-        # x2_3db_idx = torch.argmin(torch.abs((x2_cum - x2_3db_value)))
         _, x2_3db_idxs = torch.abs((x2_cum - x2_3db_value)).topk(2, -1, False)
         x2_3db_values0 = (x2_cum[0, 0, 0, x2_3db_idxs[0, 0, 0, 0]] - x2_3db_value).abs()
         x2_3db_values1 = (x2_cum[0, 0, 0, x2_3db_idxs[0, 0, 0, 1]] - x2_3db_value).abs()
         x2_3db_idx = x2_3db_idxs[0, 0, 0, 0].float() + x2_3db_values0 / (
             x2_3db_values0 + x2_3db_values1
         ) * (x2_3db_idxs[0, 0, 0, 1].float() - x2_3db_idxs[0, 0, 0, 0].float())
-        # Calculate b_x
         b_x = (
             (self.nfilter // 2 - 1 - x1_3db_idx + x2_3db_idx).float()
             / self.nfilter
@@ -384,16 +356,14 @@ class LearntFormantFilter(nn.Module):
         if not self.dynamic:
             x_cum = x_cum.repeat(
                 [fi.shape[0], 1, 1, 1]
-            )  # XUPENG: delete this line if use dynamic filter shape
+            )
         if self.cubic:
-            # sampled_filter = F.grid_sample(x_cum,grid,align_corners=None,mode='bicubic') #B x 1 x self.nfft x T
-            sampled_filter = interp(x_cum, grid_x)  # B x 1 x self.nfft x T
+            sampled_filter = interp(x_cum, grid_x)
         else:
             sampled_filter = F.grid_sample(
                 x_cum, grid, align_corners=None
-            )  # B x 1 x self.nfft x T
-        sampled_filter = sampled_filter.transpose(-1, -2)  # B x 1 x T x self.nfft
-        # print ('sampled_filter', sampled_filter.shape)
+            )
+        sampled_filter = sampled_filter.transpose(-1, -2)
         return sampled_filter
 
 
@@ -449,13 +419,10 @@ class LearntFormantFilterMultiple(nn.Module):
             )
 
     def forward(self, fi, bi, f_sampling=None, spec=None):
-        # fi,bi: B x T x 1 x n_formants, f_sampling: BxTxkx1
-        # out: B x T x nfft x n_formants
         total_formants = fi.shape[-1]
         is_harm = True if (total_formants == self.n_formants) else False
         fi = torch.unbind(fi, -1)
         bi = torch.unbind(bi, -1)
-        #       import pdb; pdb.set_trace();
         if f_sampling is not None:
             f_sampling = f_sampling.squeeze(-1).transpose(-1, -2)
         combined_filter = torch.stack(
@@ -469,12 +436,9 @@ class LearntFormantFilterMultiple(nn.Module):
                 for i in range(self.n_formants)
             ],
             -1,
-        )  # B x 1 x T x nfft x n_formants
-        combined_filter = combined_filter.squeeze(1)  # B x T x nfft x n_formants
+        )
+        combined_filter = combined_filter.squeeze(1)
         if not is_harm:
-            # with torch.no_grad():
-            #    combined_filter = torch.stack([self.filter[i](fi[i].transpose(-1,-2),bi[i].transpose(-1,-2)) for i in range(self.n_formants)],-1) #B x 1 x T x nfft x n_formants
-            #    combined_filter = combined_filter.squeeze(1) # B x T x nfft x n_formants
             combined_filter_noise = torch.stack(
                 [
                     self.filter_noise[i](
@@ -486,10 +450,10 @@ class LearntFormantFilterMultiple(nn.Module):
                     for i in range(self.n_formants_noise)
                 ],
                 -1,
-            )  # B x 1 x T x nfft x n_formants
+            )
             combined_filter_noise = combined_filter_noise.squeeze(
                 1
-            )  # B x T x nfft x n_formants
+            )
             combined_filter = torch.cat([combined_filter, combined_filter_noise], -1)
         return combined_filter
 
@@ -539,8 +503,6 @@ class Upsample_Block(nn.Module):
         self, in_channels, out_channels, bilinear=False, causal=False, anticausal=False
     ):
         super().__init__()
-
-        # if bilinear, use the normal convolutions to reduce the number of channels
         if bilinear:
             self.up = nn.Upsample(scale_factor=2, mode="linear", align_corners=True)
         else:
@@ -554,7 +516,6 @@ class Upsample_Block(nn.Module):
                 causal=causal,
                 anticausal=anticausal,
             )
-
     def forward(self, x):
         return self.up(x)
 
@@ -620,7 +581,7 @@ class FormantSysth(nn.Module):
         return_filtershape=False,
         spec_fr=125,
         reverse_order=True,
-    ):  # dynamic_bgnoise=False,
+    ):
         super(FormantSysth, self).__init__()
         self.wave_fr = 16e3
         self.spec_fr = spec_fr
@@ -632,7 +593,6 @@ class FormantSysth(nn.Module):
         self.dbbased = dbbased
         self.log10 = log10
         self.add_bgnoise = add_bgnoise
-        # self.dynamic_bgnoise = dynamic_bgnoise
         self.wavebased = wavebased
         self.noise_from_data = noise_from_data
         self.linear_scale = wavebased
@@ -651,15 +611,12 @@ class FormantSysth(nn.Module):
             ln.Conv1d(128, 128, 1),
             nn.LeakyReLU(0.2),
             ln.Conv1d(128, 2, 1),
-            # nn.Sigmoid(),
         )
         self.bgnoise_mapping = nn.Sequential(
             ln.Conv2d(2, 2, [1, 5], padding=[0, 2], gain=1, bias=False),
-            # nn.Sigmoid(),
         )
         self.noise_mapping = nn.Sequential(
             ln.Conv2d(2, 2, [1, 5], padding=[0, 2], gain=1, bias=False),
-            # nn.Sigmoid(),
         )
 
         self.bgnoise_mapping2 = nn.Sequential(
@@ -668,7 +625,6 @@ class FormantSysth(nn.Module):
             ln.Conv1d(128, 128, 1, 1),
             nn.LeakyReLU(0.2),
             ln.Conv1d(128, 1, 1, gain=1, bias=False),
-            # nn.Sigmoid(),
         )
         self.noise_mapping2 = nn.Sequential(
             ln.Conv1d(1, 128, 1, 1),
@@ -676,7 +632,6 @@ class FormantSysth(nn.Module):
             ln.Conv1d(128, 128, 1, 1),
             nn.LeakyReLU(0.2),
             ln.Conv1d(128, 1, 1, 1, gain=1, bias=False),
-            # nn.Sigmoid(),
         )
         self.prior_exp = np.array([0.4963, 0.0745, 1.9018])
         self.timbre_parameter = Parameter(torch.Tensor(2))
@@ -693,7 +648,6 @@ class FormantSysth(nn.Module):
             )
             with torch.no_grad():
                 nn.init.constant_(self.bgnoise_dist, 1.0)
-        #   self.silient = Parameter(torch.Tensor(1,1,n_mels))
         self.silient = -1
         if self.dummy_formant:
             self.dummy_f = Parameter(torch.Tensor(1, 1, 1, 1))
@@ -710,11 +664,9 @@ class FormantSysth(nn.Module):
                 nn.init.constant_(self.dummy_w, 1.0)
                 nn.init.constant_(self.dummy_a, -1.0)
 
-        #  nn.init.constant_(self.silient,-1.0)
         self.learned_mask = learned_mask
 
         if learned_mask:
-            # self.formant_masks = LearntFormantFilterMultiple(n_formants,1,n_fft,n_filter_samples,2000.,8000.)
             if learnedbandwidth or dynamic_filter_shape:
                 self.formant_masks_hamon = LearntFormantFilterMultiple(
                     n_formants,
@@ -737,8 +689,8 @@ class FormantSysth(nn.Module):
                     dynamic=dynamic_filter_shape,
                     learnedbandwidth=learnedbandwidth,
                     reverse_order=reverse_order,
-                )  # only for hamonic? or both?
-            else:  # no learned bandwith with current setting!
+                )
+            else:
                 self.formant_masks = LearntFormantFilterMultiple(
                     n_formants,
                     1,
@@ -759,7 +711,6 @@ class FormantSysth(nn.Module):
                     dynamic=False,
                     reverse_order=reverse_order,
                 )
-        print("n filter samples!!", n_filter_samples)
 
     def formant_mask(
         self,
@@ -775,22 +726,21 @@ class FormantSysth(nn.Module):
         learned_mask=None,
         spec=None,
     ):
-        # freq, bandwith, amplitude: B*formants*time
         freq_cord = torch.arange(self.n_fft if linear else self.n_mels)
         time_cord = torch.arange(freq_hz.shape[2])
         grid_time, grid_freq = torch.meshgrid(time_cord, freq_cord)
-        grid_time = grid_time.unsqueeze(dim=0).unsqueeze(dim=-1)  # B,time,freq, 1
-        grid_freq = grid_freq.unsqueeze(dim=0).unsqueeze(dim=-1)  # B,time,freq, 1
+        grid_time = grid_time.unsqueeze(dim=0).unsqueeze(dim=-1)
+        grid_freq = grid_freq.unsqueeze(dim=0).unsqueeze(dim=-1)
         grid_freq_hz = (
             ind2hz(grid_freq, self.n_fft, self.wave_fr / 2)
             if linear
             else inverse_mel_scale(grid_freq / (self.n_mels * 1.0))
         )
-        freq_hz = freq_hz.permute([0, 2, 1]).unsqueeze(dim=-2)  # B,time,1, formants
+        freq_hz = freq_hz.permute([0, 2, 1]).unsqueeze(dim=-2)
         bandwith_hz = bandwith_hz.permute([0, 2, 1]).unsqueeze(
             dim=-2
-        )  # B,time,1, formants
-        amplitude = amplitude.permute([0, 2, 1]).unsqueeze(dim=-2)  # B,time,1, formants
+        ) 
+        amplitude = amplitude.permute([0, 2, 1]).unsqueeze(dim=-2) 
         if self.dummy_formant:
             dummy_freq = 250 * torch.sigmoid(self.dummy_f)
             dummy_band = 250 * torch.sigmoid(self.dummy_w) + 50
@@ -799,14 +749,14 @@ class FormantSysth(nn.Module):
             amplitude = amplitude
         alpha = 2 * np.sqrt(2 * np.log(np.sqrt(2)))
 
-        if self.return_wave:  # False in train, True in testp
+        if self.return_wave:
             t = torch.arange(int(f0_hz.shape[2] / self.spec_fr * self.wave_fr)) / (
                 1.0 * self.wave_fr
-            )  # in second
-            t = t.unsqueeze(dim=0).unsqueeze(dim=0)  # 1, 1, time
+            )
+            t = t.unsqueeze(dim=0).unsqueeze(dim=0)
             k = (torch.arange(self.k) + 1).reshape([1, self.k, 1])
-            k_f0 = k * f0_hz  # BxkxT
-            k_f0 = k_f0.permute([0, 2, 1]).unsqueeze(-1)  # BxTxkx1
+            k_f0 = k * f0_hz
+            k_f0 = k_f0.permute([0, 2, 1]).unsqueeze(-1)
             if self.learned_mask:
                 hamonic_dist = (
                     (
@@ -816,7 +766,7 @@ class FormantSysth(nn.Module):
                     .sqrt()
                     .sum(-1)
                     .permute([0, 2, 1])
-                )  # BxkxT
+                )
             else:
                 hamonic_dist = (
                     (
@@ -829,14 +779,14 @@ class FormantSysth(nn.Module):
                     .sqrt()
                     .sum(-1)
                     .permute([0, 2, 1])
-                )  # BxkxT
+                )
             if self.dummy_formant:
                 if self.learned_mask:
                     dummy = dummy_amp * self.formant_masks_dummy(
                         dummy_freq, dummy_band, k_f0, spec=spec
                     ).sum(-1).permute(
                         [0, 2, 1]
-                    )  # sum of power
+                    )
                 else:
                     dummy = dummy_amp * torch.exp(
                         -0.5
@@ -850,8 +800,7 @@ class FormantSysth(nn.Module):
                         )
                     ).sum(-1).permute(
                         [0, 2, 1]
-                    )  # sum of power
-                # dummy = dummy_amp*torch.exp(-0.5*(((k_f0-dummy_freq))**2/((dummy_band/(2*(2*np.log(2))**(0.5))+0.01)**2)+1E-8)).sqrt().sum(-1).permute([0,2,1]) # sum of amp
+                    )
                 hamonic_dist = hamonic_dist + dummy.squeeze(0)
             hamonic_dist = F.interpolate(
                 hamonic_dist,
@@ -861,12 +810,8 @@ class FormantSysth(nn.Module):
             )
 
         if triangle_mask:
-            # print (' triangle mask')
             if duomask:
-                # print ('duomask')
-                # masks_hamon = amplitude[...,:-n_formant_noise]*torch.exp(-(0.693*(grid_freq_hz-freq_hz[...,:-n_formant_noise]))**2/(2*(bandwith_hz[...,:-n_formant_noise]+0.01)**2))
                 if self.learned_mask:
-                    # print ('learned_mask')
                     masks_hamon = amplitude[..., :-n_formant_noise] * learned_mask(
                         freq_hz[..., :-n_formant_noise],
                         bandwith_hz[..., :-n_formant_noise] + 0.01,
@@ -895,7 +840,6 @@ class FormantSysth(nn.Module):
                             * (grid_freq_hz - freq_hz[..., -n_formant_noise:]).abs()
                         )
                     )
-                # masks_noise = amplitude[...,-n_formant_noise:] * (1 - 2/(bw+0.01)*(grid_freq_hz-freq_hz[...,-n_formant_noise:]).abs())*(-torch.sign(torch.abs(grid_freq_hz-freq_hz[...,-n_formant_noise:])/(bw+0.01)-0.5)*0.5+0.5)
                 masks = torch.cat([masks_hamon, masks_noise], dim=-1)
             else:
                 if self.learned_mask:
@@ -915,10 +859,7 @@ class FormantSysth(nn.Module):
                     )
         else:
             if self.power_synth:
-                # print ('self.power_synth:')
                 if self.learned_mask:
-                    # print ('learned_mask')
-                    # print ('spec in noise part', spec.shape)
                     masks = amplitude * learned_mask(
                         freq_hz, bandwith_hz + 0.01, spec=spec
                     )
@@ -965,9 +906,9 @@ class FormantSysth(nn.Module):
                             + 1e-6
                         ).sqrt()
                     )
-        masks = masks.unsqueeze(dim=1)  # B,1,time,freqchans, formants
+        masks = masks.unsqueeze(dim=1)
         if self.return_wave:
-            return masks, hamonic_dist  # B,1,time,freqchans
+            return masks, hamonic_dist
         else:
             if self.return_filtershape:
                 if self.learned_mask:
@@ -978,10 +919,9 @@ class FormantSysth(nn.Module):
                 return masks
 
     def voicing_wavebased(self, f0_hz):
-        # f0: B*1*time, hz
         t = torch.arange(int(f0_hz.shape[2] / self.spec_fr * self.wave_fr)) / (
             1.0 * self.wave_fr
-        )  # in second
+        )
         t = t.unsqueeze(dim=0).unsqueeze(dim=0)  # 1, 1, time
         k = (torch.arange(self.k) + 1).reshape([1, self.k, 1])
         f0_hz_interp = F.interpolate(
@@ -1038,29 +978,28 @@ class FormantSysth(nn.Module):
         freq_cord = torch.arange(self.n_fft)
         time_cord = torch.arange(f0_hz.shape[2])
         grid_time, grid_freq = torch.meshgrid(time_cord, freq_cord)
-        grid_time = grid_time.unsqueeze(dim=0).unsqueeze(dim=-1)  # B,time,freq, 1
-        grid_freq = grid_freq.unsqueeze(dim=0).unsqueeze(dim=-1)  # B,time,freq, 1
-        f0_hz = f0_hz.permute([0, 2, 1]).unsqueeze(dim=-2)  # B,time,1, 1
-        f0_hz = f0_hz.repeat([1, 1, 1, self.k])  # B,time,1, self.k
+        grid_time = grid_time.unsqueeze(dim=0).unsqueeze(dim=-1)
+        grid_freq = grid_freq.unsqueeze(dim=0).unsqueeze(dim=-1)
+        f0_hz = f0_hz.permute([0, 2, 1]).unsqueeze(dim=-2)
+        f0_hz = f0_hz.repeat([1, 1, 1, self.k])
         f0_hz = f0_hz * (torch.arange(self.k) + 1).reshape([1, 1, 1, self.k])
         f0 = hz2ind(f0_hz, self.n_fft)
         freq_cord_reshape = freq_cord.reshape([1, 1, 1, self.n_fft])
         hamonics = (1 - 2 / bandwith * (grid_freq - f0).abs()) * (
             -torch.sign(torch.abs(grid_freq - f0) / (bandwith) - 0.5) * 0.5 + 0.5
-        )  # triangular
+        )
         hamonics = (hamonics.sum(dim=-1)).unsqueeze(dim=1)
         return hamonics
 
     def voicing(self, f0_hz):
-        # f0: B*1*time, hz
         freq_cord = torch.arange(self.n_mels)
         time_cord = torch.arange(f0_hz.shape[2])
         grid_time, grid_freq = torch.meshgrid(time_cord, freq_cord)
-        grid_time = grid_time.unsqueeze(dim=0).unsqueeze(dim=-1)  # B,time,freq, 1
-        grid_freq = grid_freq.unsqueeze(dim=0).unsqueeze(dim=-1)  # B,time,freq, 1
+        grid_time = grid_time.unsqueeze(dim=0).unsqueeze(dim=-1) 
+        grid_freq = grid_freq.unsqueeze(dim=0).unsqueeze(dim=-1)
         grid_freq_hz = inverse_mel_scale(grid_freq / (self.n_mels * 1.0))
-        f0_hz = f0_hz.permute([0, 2, 1]).unsqueeze(dim=-2)  # B,time,1, 1
-        f0_hz = f0_hz.repeat([1, 1, 1, self.k])  # B,time,1, self.k
+        f0_hz = f0_hz.permute([0, 2, 1]).unsqueeze(dim=-2)
+        f0_hz = f0_hz.repeat([1, 1, 1, self.k]) 
         f0_hz = f0_hz * (torch.arange(self.k) + 1).reshape([1, 1, 1, self.k])
         if self.log10:
             f0_mel = mel_scale(self.n_mels, f0_hz)
@@ -1087,12 +1026,12 @@ class FormantSysth(nn.Module):
             sigma = bandwith / (2 * np.sqrt(2 * np.log(2)))
             hamonics = torch.exp(
                 -((grid_freq - f0) ** 2) / (2 * sigma**2)
-            )  # gaussian
+            ) 
         else:
             hamonics = (1 - ((grid_freq - f0) / (2.5 * bandwith / 2)) ** 2) * (
                 -torch.sign(torch.abs(grid_freq - f0) / (2.5 * bandwith) - 0.5) * 0.5
                 + 0.5
-            )  # welch
+            )
         timbre_parameter = (
             self.timbre_mapping(f0_hz[..., 0, 0].unsqueeze(1))
             .permute([0, 2, 1])
@@ -1130,7 +1069,7 @@ class FormantSysth(nn.Module):
                 )
                 * condition
             )
-        )  # B,1,T,F
+        ) 
         return hamonics
 
     def unvoicing(self, f0, bg=False, mapping=True):
@@ -1181,12 +1120,11 @@ class FormantSysth(nn.Module):
                 .unsqueeze(dim=-1)
                 .unsqueeze(dim=-1)
                 .permute(0, 3, 2, 1)
-            )  # torch.Size([1, 1, 1, 256])
+            ) 
         if self.wavebased:
             self.hamonics = self.voicing_wavebased(f0_hz)
             self.noise = self.unvoicing_wavebased(f0_hz, bg=False, mapping=False)
             self.bgnoise = self.unvoicing_wavebased(f0_hz, bg=True)
-            # print ('self.noise, self.bgnoise', self.bgnoise.shape, self.noise.shape)
         else:
             self.hamonics = self.voicing(f0_hz)
             self.noise = self.unvoicing(f0_hz, bg=False)
@@ -1211,7 +1149,6 @@ class FormantSysth(nn.Module):
 
         if self.learned_mask:
             if self.learnedbandwidth or self.dynamic_filter_shape:
-                # print ('self.mask_hamon formant_mask')
                 self.mask_hamon = self.formant_mask(
                     components["freq_formants_hamon_hz"],
                     components["bandwidth_formants_hamon_hz"],
@@ -1221,7 +1158,6 @@ class FormantSysth(nn.Module):
                     learned_mask=self.formant_masks_hamon,
                     spec=spec_smooth,
                 )
-                # print ('self.mask_noise formant_mask')
                 self.mask_noise = self.formant_mask(
                     components["freq_formants_noise_hz"],
                     components["bandwidth_formants_noise_hz"],
@@ -1278,9 +1214,6 @@ class FormantSysth(nn.Module):
 
         if n_iter != 0:
             if self.return_filtershape:
-                # self.mask_hamon = self.formant_mask(components['freq_formants_hamon_hz'].cuda(),components['bandwidth_formants_hamon_hz'].cuda(),components['amplitude_formants_hamon'].cuda(),linear = self.linear_scale,f0_hz = f0_hz.cuda(),learned_mask=self.formant_masks_hamon)
-                # self.mask_noise = self.formant_mask(components['freq_formants_noise_hz'].cuda(),components['bandwidth_formants_noise_hz'].cuda(),components['amplitude_formants_noise'].cuda(),linear = self.linear_scale,triangle_mask=False if self.wavebased else True,duomask=duomask,n_formant_noise=n_formant_noise,f0_hz = f0_hz.cuda(),noise=True,learned_mask=self.formant_masks_noise)
-                # return self.mask_hamon, self.mask_noise
                 if not os.path.exists(save_path + "/filtershape/"):
                     os.makedirs(save_path + "/filtershape/")
                 np.save(
@@ -1292,7 +1225,7 @@ class FormantSysth(nn.Module):
                     self.mask_noise.detach().cpu().numpy(),
                 )
 
-        if self.return_wave:  # False
+        if self.return_wave:
             self.hamonics, self.hamonics_wave = self.hamonics
             self.mask_hamon, self.hamonic_dist = self.mask_hamon
             self.mask_noise, self.mask_noise_only = self.mask_noise
@@ -1320,22 +1253,16 @@ class FormantSysth(nn.Module):
                 1, keepdim=True
             )
         self.mask_hamon_sum = self.mask_hamon.sum(dim=-1)
-        # print ('self.mask_noise',self.mask_noise.shape)
         self.mask_noise_sum = self.mask_noise.sum(dim=-1)
-        # print ('self.noise_dist', self.noise_dist.shape)
-        # print ('self.bgnoise_amp', self.bgnoise_amp)
-        # print ('self.noise_from_data', self.noise_from_data)
         bgdist = (
             F.softplus(self.bgnoise_amp) * self.noise_dist
             if self.noise_from_data
             else noise_dist_learned
-        )  # torch.Size([1, 1, 1, 256])
-        # old: else F.softplus(self.bgnoise_dist)
+        )
         if self.power_synth:
             self.excitation_hamon = loudness * (amplitudes[:, 0:1]) * self.hamonics
         else:
             self.excitation_hamon = loudness * amplitudes[:, 0:1] * self.hamonics
-        # print ('self.excitation_noise*self.mask_noise_sum',self.excitation_noise.shape, self.mask_noise_sum.shape)
         self.noise_excitation = self.excitation_noise * self.mask_noise_sum
         if self.return_wave:
             self.noise_excitation_wave = 2 * inverse_spec_to_audio(
@@ -1350,7 +1277,6 @@ class FormantSysth(nn.Module):
             self.noise_excitation_wave = self.noise_excitation_wave.unsqueeze(1)
             self.rec_wave = self.noise_excitation_wave + self.hamonics_wave_
         if self.wavebased:
-            # import pdb; pdb.set_trace()
             bgn = (
                 bgdist * self.bgnoise * 0.0003
                 if (self.add_bgnoise and enable_bgnoise)
@@ -1443,10 +1369,10 @@ class FormantEncoder(nn.Module):
         self.power_synth = power_synth
         self.formant_freq_limits_diff = torch.tensor([950.0, 2450.0, 2100.0]).reshape(
             [1, 3, 1]
-        )  # freq difference
+        ) 
         self.formant_freq_limits_diff_low = torch.tensor([300.0, 300.0, 0.0]).reshape(
             [1, 3, 1]
-        )  # freq difference
+        )
         self.patient = patient
         print("patient for audio encoder:", patient)
         print("gender_patient", gender_patient)
@@ -1455,53 +1381,53 @@ class FormantEncoder(nn.Module):
                 [950.0, 3400.0, 3800.0, 5000.0, 6000.0, 7500.0]
             ).reshape(
                 [1, 6, 1]
-            )  # freq difference
+            )
             self.formant_freq_limits_abs_low = torch.tensor(
                 [200.0, 500.0, 1400.0, 3000, 4000.0, 4500.0]
             ).reshape(
                 [1, 6, 1]
-            )  # freq difference
+            )
             self.formant_freq_limits_abs_male = torch.tensor(
                 [950.0, 3400.0, 3800.0, 5000.0, 6000.0, 7500.0]
             ).reshape(
                 [1, 6, 1]
-            )  # freq difference
+            )
             self.formant_freq_limits_abs_low_male = torch.tensor(
                 [200.0, 500.0, 1400.0, 3000, 4000.0, 4500.0]
             ).reshape(
                 [1, 6, 1]
-            )  # freq difference
+            )
         else:
             self.formant_freq_limits_abs = torch.tensor(
                 [950.0, 3400.0, 3800.0, 5000.0, 6000.0, 7000.0]
             ).reshape(
                 [1, 6, 1]
-            )  # freq difference
+            )
             self.formant_freq_limits_abs_low = torch.tensor(
                 [300.0, 700.0, 1800.0, 3400, 5000.0, 6000.0]
             ).reshape(
                 [1, 6, 1]
-            )  # freq difference
+            )
             self.formant_freq_limits_abs_male = torch.tensor(
                 [850.0, 3000.0, 3400.0, 4600.0, 6000.0, 7500.0]
             ).reshape(
                 [1, 6, 1]
-            )  # freq difference
+            )
             self.formant_freq_limits_abs_low_male = torch.tensor(
                 [200.0, 500.0, 1400.0, 3000, 4000.0, 4500.0]
             ).reshape(
                 [1, 6, 1]
-            )  # freq difference
+            )
         self.formant_freq_limits_abs_noise = torch.tensor(
             [8000.0, 7000.0, 7000.0]
         ).reshape(
             [1, 3, 1]
-        )  # freq difference
+        ) 
         self.formant_freq_limits_abs_noise_low = torch.tensor(
             [4000.0, 3000.0, 3000.0]
         ).reshape(
             [1, 3, 1]
-        )  # freq difference
+        ) 
         self.formant_bandwitdh_bias = Parameter(torch.Tensor(1))
         self.formant_bandwitdh_slop = Parameter(torch.Tensor(1))
         self.formant_bandwitdh_thres = Parameter(torch.Tensor(1))
@@ -1530,7 +1456,7 @@ class FormantEncoder(nn.Module):
             else:
                 if larger_capacity:
                     self.conv1_narrow = nn.Sequential(
-                        ln.Conv1d(n_fft, 256, 5, 1, 2),  # add capacity for male!!
+                        ln.Conv1d(n_fft, 256, 5, 1, 2),
                         nn.GroupNorm(32, 256),
                         nn.LeakyReLU(0.2),
                         ln.Conv1d(256, 128, 5, 1, 2),
@@ -1545,11 +1471,11 @@ class FormantEncoder(nn.Module):
                     )
                 else:
                     self.conv1_narrow = nn.Sequential(
-                        ln.Conv1d(n_fft, 128, 3, 1, 1),  # add capacity for male!!
+                        ln.Conv1d(n_fft, 128, 3, 1, 1),
                         nn.GroupNorm(32, 128),
                         nn.LeakyReLU(
                             0.2
-                        ),  # 0518  temporally change back to 3,1,1 from 5,1,2
+                        ), 
                         ln.Conv1d(128, 64, 3, 1, 1),
                         nn.GroupNorm(32, 64),
                         nn.LeakyReLU(0.2),
@@ -1568,7 +1494,7 @@ class FormantEncoder(nn.Module):
             self.conv_amplitudes_narrow = ln.Conv1d(128, 2, 1, 1, 0)
             self.conv_amplitudes_h_narrow = ln.Conv1d(128, 2, 1, 1, 0)
         if wavebased:
-            self.conv1 = ln.Conv1d(n_fft, 64, 3, 1, 1)  # add capacity for male!!
+            self.conv1 = ln.Conv1d(n_fft, 64, 3, 1, 1)
         else:
             self.conv1 = ln.Conv1d(n_mels, 64, 3, 1, 1)
         self.norm1 = nn.GroupNorm(32, 64)
@@ -1586,7 +1512,7 @@ class FormantEncoder(nn.Module):
             )
         else:
             self.conv1 = nn.Sequential(
-                ln.Conv1d(n_fft, 128, 3, 1, 1),  # add capacity for male!!
+                ln.Conv1d(n_fft, 128, 3, 1, 1), 
                 nn.GroupNorm(32, 128),
                 nn.LeakyReLU(0.2),
                 ln.Conv1d(128, 64, 3, 1, 1),
@@ -1611,7 +1537,7 @@ class FormantEncoder(nn.Module):
         self.conv_loudness = nn.Sequential(
             ln.Conv1d(
                 n_fft if wavebased else n_mels, 128, 1, 1, 0
-            ),  # add capacity for male? or maybe not?
+            ),  
             nn.LeakyReLU(0.2),
             ln.Conv1d(128, 128, 1, 1, 0),
             nn.LeakyReLU(0.2),
@@ -1637,11 +1563,11 @@ class FormantEncoder(nn.Module):
         self.conv1_bgnoise = ln.Conv1d(128, 128, 1, 1, 0)
         self.conv2_bgnoise = ln.Conv1d(
             128, n_fft if wavebased else n_mels, 1, 1, 0
-        )  # add capacity for male?
+        ) 
         self.norm1_bgnoise = nn.GroupNorm(32, 128 if wavebased else n_mels)
         self.norm2_bgnoise = nn.GroupNorm(
             32, n_fft if wavebased else n_mels
-        )  # add capacity for male!!
+        ) 
 
         self.amplifier = Parameter(torch.Tensor(1))
         self.bias = Parameter(torch.Tensor(1))
@@ -1660,14 +1586,14 @@ class FormantEncoder(nn.Module):
         gender="Female",
         onstage=None,
     ):
-        x = x.squeeze(dim=1).permute(0, 2, 1)  # B * f * T
+        x = x.squeeze(dim=1).permute(0, 2, 1) 
         if x_denoise is not None:
             x_denoise = x_denoise.squeeze(dim=1).permute(0, 2, 1)
         if x_amp is None:
             x_amp = amplitude(x, self.noise_db, self.max_db, trim_noise=True)
         else:
             x_amp = x_amp.squeeze(dim=1).permute(0, 2, 1)
-        win = 4 * self.n_fft // 256 + 1  # male
+        win = 4 * self.n_fft // 256 + 1 
         hann_win = torch.hann_window(win, periodic=False).reshape([1, 1, win, 1])
         x_smooth = (
             F.conv2d(
@@ -1725,7 +1651,7 @@ class FormantEncoder(nn.Module):
                     0.2,
                 )
             )
-            if self.unified:  # we unify f0 learning of male and female
+            if self.unified:  
                 f0_hz = (
                     torch.sigmoid(
                         self.conv_f0_narrow(
@@ -1749,7 +1675,7 @@ class FormantEncoder(nn.Module):
                     * 120
                     + 80
                     + 100 * gender.unsqueeze(-1)
-                )  # 80hz < f0 < 200 hz for male, 180hz < f0 < 300 hz for female
+                ) 
             f0 = torch.clamp(
                 mel_scale(self.n_mels, f0_hz) / (self.n_mels * 1.0), min=0.0001
             )
@@ -1799,7 +1725,7 @@ class FormantEncoder(nn.Module):
         )
         formants_bandwidth_hz = 0.65 * (
             0.00625 * torch.relu(formants_freqs_hz) + 375
-        )  # production
+        ) 
         formants_bandwidth_hz_male = (
             0.55 * 0.65 * (0.00625 * torch.relu(formants_freqs_hz) + 300)
         )
@@ -1843,10 +1769,10 @@ class FormantEncoder(nn.Module):
         formants_bandwidth_hz_noise = self.conv_formants_bandwidth_noise(x_formants)
         formants_bandwidth_hz_noise_1 = (
             F.softplus(formants_bandwidth_hz_noise[:, :1]) * 2344 + 586
-        )  # 2000-10000
+        ) 
         formants_bandwidth_hz_noise_2 = (
             torch.sigmoid(formants_bandwidth_hz_noise[:, 1:]) * 586
-        )  # 0-2000
+        ) 
         formants_bandwidth_hz_noise = torch.cat(
             [formants_bandwidth_hz_noise_1, formants_bandwidth_hz_noise_2], dim=1
         )
@@ -1881,7 +1807,7 @@ class FormantEncoder(nn.Module):
             "bandwidth_formants_noise_hz": formants_bandwidth_hz_noise,
             "amplitude_formants_noise": formants_amplitude_noise,
             "noisebg": noisebg,
-            "spec_smooth": x_smooth,  # for some leanable parameter use in decoder
+            "spec_smooth": x_smooth,
         }
         return components
 
@@ -2278,8 +2204,6 @@ class ECoGMapping_Bottleneck_ran(nn.Module):
         )
 
     def forward(self, ecog, mask_prior, mni, gender="Female"):
-        # print (self.mapping_layers,single_patient_mapping,self.region_index,self.multiscale,self.pre_articulate)
-        # 0 -1 0 False False
         elec_length = int(ecog[0].shape[-1] ** 0.5)
         x = ecog
         bs_per = x.shape[0]
@@ -2390,9 +2314,6 @@ class ECoGMappingRNN_ran(torch.nn.Module):
         mask_prior,
         mni,
         gender="Female",
-        single_patient_mapping=-1,
-        states=None,
-        return_states=False,
         **kwargs,
     ):
 
@@ -2436,13 +2357,7 @@ class ECoGMapping_3D_SWIN(nn.Module):
         upsample="bilinear",
         select_ind=0,
         network_db=False,
-        adim=64,
         GR=0,
-        conv_method="both",
-        classic_attention=1,
-        mapping_layers=0,
-        single_patient_mapping=-1,
-        region_index=0,
     ):
         super(ECoGMapping_3D_SWIN, self).__init__()
         self.causal = causal
@@ -2526,7 +2441,6 @@ class ECoGMapping_3D_SWIN(nn.Module):
             depths=[2, 2, 6, 2],
             num_heads=[3, 6, 12, 24],
             window_size=(window_size_Ts[select_ind], 2, 2),
-            # drop_path_rate=0,
             mlp_ratio=4.0,
             causal=causal,
             anticausal=anticausal,
@@ -2534,7 +2448,7 @@ class ECoGMapping_3D_SWIN(nn.Module):
         self.swin_down_times = 4
         self.conv6 = ln.ConvTranspose1d(
             numclassess[select_ind], 256, 3, 2, 1, transform_kernel=True
-        )  # ,causal=causal,anticausal = anticausal)
+        ) 
 
         self.upconvs1 = Upsample_Block(
             256, hidden_dim, bilinear=True if upsample == "bilinear" else False
@@ -2560,7 +2474,7 @@ class ECoGMapping_3D_SWIN(nn.Module):
         ]
         self.norm_layers = [self.norms1, self.norms2, self.norms3, self.norms4]
         self.GR = GR
-        if GR:  # gradient reversal
+        if GR: 
             self.Speaker_Classifier_GR(
                 Channels=[self.n_classes],
                 previous_Channels=self.n_classes,
@@ -2586,7 +2500,7 @@ class ECoGMapping_3D_SWIN(nn.Module):
             input=x, pad=(0, 0, 1, 0, 1, 0, 0, 0), mode="constant", value=0
         ).permute(
             0, 4, 1, 2, 3
-        )  # pad to even H and W
+        )
         bs_per = x.shape[0]
         xs = (
             self.swin_transformer(xs, region_index=None)

@@ -28,15 +28,19 @@ class cache:
 
     def __call__(self, *args, **kwargs):
         m = hashlib.sha256()
-        m.update(pickle.dumps((self.function.__name__, args, frozenset(kwargs.items()))))
-        output_path = os.path.join('.cache', "%s_%s" % (m.hexdigest(), self.pickle_name))
+        m.update(
+            pickle.dumps((self.function.__name__, args, frozenset(kwargs.items())))
+        )
+        output_path = os.path.join(
+            ".cache", "%s_%s" % (m.hexdigest(), self.pickle_name)
+        )
         try:
-            with open(output_path, 'rb') as f:
+            with open(output_path, "rb") as f:
                 data = pickle.load(f)
         except (FileNotFoundError, pickle.PickleError):
             data = self.function(*args, **kwargs)
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            with open(output_path, 'wb') as f:
+            with open(output_path, "wb") as f:
                 pickle.dump(data, f)
         return data
 
@@ -55,7 +59,9 @@ class AsyncCall(object):
         self.result = None
 
     def __call__(self, *args, **kwargs):
-        self.Thread = threading.Thread(target=self.run, name=self.Callable.__name__, args=args, kwargs=kwargs)
+        self.Thread = threading.Thread(
+            target=self.run, name=self.Callable.__name__, args=args, kwargs=kwargs
+        )
         self.Thread.start()
         return self
 
@@ -83,11 +89,10 @@ class AsyncMethod(object):
 
 def async_func(fnc=None, callback=None):
     if fnc is None:
+
         def add_async_callback(f):
             return AsyncMethod(f, callback)
+
         return add_async_callback
     else:
         return AsyncMethod(fnc, callback)
-
-
-

@@ -1,11 +1,4 @@
-import pdb
-import random
-from tracker import LossTracker
-import losses
-
-# from net_formant_ran0322  import *
-# from net_formant_ran0405 import *
-from net_formant_ran import *
+from networks import *
 import numpy as np
 from torch.nn import functional as F
 from losses import CosineLoss
@@ -129,148 +122,6 @@ def minmaxscale_ref(data, data_select, quantile=0.9):
     else:
         return (data - minv) / (maxv - minv)
 
-
-class KDEConsistencyLoss:
-    """Compare similarity of two traces of sinusoids using kernels.
-    EXPERIMENTAL
-    Adapted from differentiable two-way mismatch loss. Very similar to the
-    Jefferys divergence. Use gaussian kernel density estimate in both directions
-    to compare likelihood of each set of sinusoids relative to the other.
-    Also enforces mean amplitudes to be the same, as JD by itself is insensitve to
-    absolute scale of the amplitudes.
-    """
-
-    def __init__(
-        self, weight_a=0.1, weight_b=0.1, weight_mean_amp=0.1, scale_a=0.1, scale_b=0.1
-    ):
-        """Constructor.
-        Args:
-          weight_a: Weight for -log p(a|b) term.
-          weight_b: Weight for -log p(b|a) term.
-          weight_mean_amp: Weight to match the mean amplitudes between a and b.
-          scale_a: Scale of the gaussians around each sinusoid in MIDI.
-          scale_b: Scale of the gaussians around each sinusoid in MIDI.
-          **kwargs: Extra args for t fkl.Layer.
-        """
-        super(KDEConsistencyLoss, self).__init__()
-        # Loss weights.
-        self.weight_a = weight_a
-        self.weight_b = weight_b
-        self.weight_mean_amp = weight_mean_amp
-        # Gaussian widths in MIDI.
-        self.scale_a = scale_a
-        self.scale_b = scale_b
-
-    def call(
-        self,
-        amps_a,
-        freqs_a,
-        amps_b,
-        freqs_b,
-        freq_single_formant_weight,
-        amplitude_formants_hamon_db_norm_weight,
-        weight,
-    ):
-        """Returns the sinusoidal consistency loss scalar.
-        Args:
-          amps_a: Amplitudes of first sinusoids, greater than 0.
-            Shape [batch, time, freq].
-          freqs_a: Frequencies of first sinusoids in hertz.
-            Shape [batch, time, feq].
-          amps_b: Amplitudes of second sinusoids, greater than 0.
-            Shape [batch, time, freq].
-          freqs_b: Frequencies of second sinusoids in hertz.
-            Shape [batch, time, feq].
-        Returns:
-          Scalar, weighted -log p(a|b) - log p(b|a).
-        """
-        weights_all = (
-            freq_single_formant_weight
-            * amplitude_formants_hamon_db_norm_weight
-            * weight
-        )
-        loss = 0.0
-        if self.weight_a > 0.0:
-            loss_a = self.nll(
-                amps_a, freqs_a, amps_b, freqs_b, self.scale_b, weights_all
-            )
-            loss += torch.mean(self.weight_a * loss_a)
-        if self.weight_b > 0.0:
-            loss_b = self.nll(
-                amps_b, freqs_b, amps_a, freqs_a, self.scale_a, weights_all
-            )
-            loss += torch.mean(self.weight_b * loss_b)
-        if self.weight_mean_amp > 0.0:
-            mean_amp_a = torch.mean(amps_a, axis=-1)
-            mean_amp_b = torch.mean(amps_b, axis=-1)
-            loss_mean_amp = torch.mean(torch.abs(mean_amp_a - mean_amp_b))
-            loss += self.weight_mean_amp * loss_mean_amp
-        # print (loss_a.shape, loss_b.shape,mean_amp_a.shape )
-        return loss
-
-    def nll(self, amps, freqs, amps_target, freqs_target, scale_target, weights_all):
-        """Returns negative log-likelihood of source sins given target sins.
-        Args:
-          amps: Amplitudes of source sinusoids, greater than 0.
-            Shape [batch, time, freq].
-          freqs: Frequencies of source sinusoids in hertz.
-            Shape [batch, time, feq].
-          amps_target: Amplitudes of target sinusoids, greater than 0.
-            Shape [batch, time, freq].
-          freqs_target: Frequencies of target sinusoids in hertz.
-            Shape [batch, time, feq].
-          scale_target: Scale of gaussian kernel in MIDI.
-        Returns:
-          - log(p(source|target)). Shape [batch, time].
-        """
-        p_source_given_target = self.kernel_density_estimate(
-            amps_target, freqs_target, scale_target
-        )
-
-        # KDE is on a logarithmic scale (MIDI).
-        freqs_midi = hz_to_midi(freqs)
-
-        # Need to rearrage shape as t fp expects, [sample_sh, batch_sh, event_sh].
-        freqs_transpose = freqs_midi.permute(
-            2, 0, 1
-        )  # transpose(freqs_midi, [2, 0, 1])  # [freq, batch, time]
-        nll_transpose = -p_source_given_target.log_prob(freqs_transpose)
-        nll = nll_transpose.permute(
-            1, 2, 0
-        )  # transpose(nll_transpose, [1, 2, 0])  # [batch, time, freq]
-
-        # Weighted sum over sinusoids -> [batch, time]
-        amps_norm = safe_divide(amps, torch.sum(amps, axis=-1, keepdims=True))
-        # print (nll.shape, amps_norm.shape, weights_all.shape)
-        return torch.mean(nll * amps_norm * weights_all, axis=-1)
-
-    def kernel_density_estimate(self, amps, freqs, scale):
-        """Gets distribution of harmonics from candidate f0s given sinusoids.
-        Performs a gaussian kernel density estimate on the sinusoid points, with the
-        height of each gaussian component given by the sinusoidal amplitude.
-        Args:
-          amps: Amplitudes of sinusoids, must be greater than 0.
-          freqs: Frequencies of sinusoids in hertz.
-          scale: Scale of gaussian kernel in MIDI.
-        Returns:
-          MixtureSameFamily, Gaussian distribution.
-        """
-        # Gaussian KDE around each partial, height=amplitude, center=frequency.
-        freqs_midi = hz_to_midi(freqs)
-
-        # NLL can be a nan if sinusoid amps are all zero, add a small offset.
-        amps = torch.where(amps == 0.0, 1e-7 * torch.ones_like(amps), amps)
-        amps_norm = safe_divide(amps, torch.sum(amps, axis=-1, keepdims=True))
-
-        # P(candidate_harmonics | freqs)
-        return torch.distributions.mixture_same_family.MixtureSameFamily(
-            torch.distributions.categorical.Categorical(probs=amps_norm),
-            torch.distributions.normal.Normal(loc=freqs_midi, scale=scale),
-        )
-        # tfd.MixtureSameFamily(tfd.Categorical(probs=amps_norm), tfd.Normal(loc=freqs_midi, scale=scale))
-
-
-kde_loss = KDEConsistencyLoss()
 
 
 def df_norm_torch(amp):
@@ -1486,38 +1337,24 @@ class Model(nn.Module):
                         * consonant_weight
                         * loudness_db_norm_weight
                     )
-                    if self.consistency_loss:
-                        diff = (
-                            kde_loss.call(
-                                components_guide["amplitude_formants_hamon"],
-                                components_guide["freq_formants_hamon_hz"],
-                                components_ecog["amplitude_formants_hamon"],
-                                components_ecog["freq_formants_hamon_hz"],
-                                freq_single_formant_weight,
-                                amplitude_formants_hamon_db_norm_weight,
-                                weight,
-                            )
-                            * 5000
-                        )
 
-                    else:
-                        tmp_diff = (
-                            components_guide[key][:, : self.n_formants_ecog]
-                            - components_ecog[key][:, : self.n_formants_ecog]
-                        ) ** 2 * freq_single_formant_weight
-                        diff = (
-                            alpha["freq_formants_hamon"]
-                            * 300
-                            * torch.mean(
-                                tmp_diff
-                                * amplitude_formants_hamon_db_norm_weight
-                                * weight
-                            )
+                    tmp_diff = (
+                        components_guide[key][:, : self.n_formants_ecog]
+                        - components_ecog[key][:, : self.n_formants_ecog]
+                    ) ** 2 * freq_single_formant_weight
+                    diff = (
+                        alpha["freq_formants_hamon"]
+                        * 300
+                        * torch.mean(
+                            tmp_diff
+                            * amplitude_formants_hamon_db_norm_weight
+                            * weight
                         )
-                        diff = self.flooding(
-                            diff,
-                            alpha["freq_formants_hamon"] * betas["freq_formants_hamon"],
-                        )
+                    )
+                    diff = self.flooding(
+                        diff,
+                        alpha["freq_formants_hamon"] * betas["freq_formants_hamon"],
+                    )
 
                     tracker.update(
                         {

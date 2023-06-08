@@ -1,60 +1,41 @@
- # Config for training ALAE on FFHQ at resolution 1024x1024
-
 NAME: ecog
 DATASET:
-  SHUFFLE: False
-  RANDOM: False
-  PART_COUNT: 16
-  SIZE: 60000
-  FFHQ_SOURCE: /data/datasets/ffhq-dataset/tfrecords/ffhq/ffhq-r%02d.tfrecords
-  PATH: /data/datasets/ffhq-dataset_new/tfrecords/ffhq/splitted/ffhq-r%02d.tfrecords.%03d
-
-  FLIP_IMAGES: False
-
-  PART_COUNT_TEST: 4
-  PATH_TEST: /data/datasets/ffhq-dataset_new/tfrecords/ffhq-test/splitted/ffhq-r%02d.tfrecords.%03d
-
   SAMPLES_PATH: ''
-  STYLE_MIX_PATH: style_mixing/test_images/set_ecog
   SPEC_CHANS: 64
   TEMPORAL_SAMPLES: 128
   BCTS: True
   MAX_RESOLUTION_LEVEL: 7
-  SUBJECT: ['NY798']
+  SUBJECT: ['NY742']
   DENSITY: 'HB'
-  # SELECTREGION: ["AUDITORY","BROCA","MOTO","SENSORY","PARIETAL"]
-  # SELECTREGION: ["BROCA","MOTO","SENSORY"]
   SELECTREGION: []
-  # SELECTREGION: ["AUDITORY","BROCA","MOTO","SENSORY"]
   BLOCKREGION: []
   PROD: True
   FAKE_REPROD: False
   PRE_ARTICULATE: False 
   TRIM: True
 MODEL:
-  #####TAKE OFF CHECKLIST!!!########
   N_FORMANTS: 6
   N_FORMANTS_NOISE: 1
   N_FORMANTS_ECOG: 6
   WAVE_BASED : True
   DO_MEL_GUIDE : False 
   BGNOISE_FROMDATA: True
-  N_FFT : 512
+  N_FFT : 256
   NOISE_DB : -50 #-50
-  MAX_DB : 22.5 #probablity 28 is better
+  MAX_DB : 22.5
   NOISE_DB_AMP : -25
   MAX_DB_AMP : 14
   POWER_SYNTH: True
   NORMED_MASK: False
-  DUMMY_FORMANT: True  #set to False to see if formant sup is capable
+  DUMMY_FORMANT: False
   LEARNED_MASK: True
   N_FILTER_SAMPLES: 20
   DYNAMIC_FILTER_SHAPE: False
   LEARNEDBANDWIDTH: False
-  RETURNFILTERSHAPE: False
+  ECOG_COMPUTE_DB_LOUDNESS: True
   CAUSAL: True
   ANTICAUSAL: False
-
+  RETURNFILTERSHAPE: False
   LESS_TEMPORAL_FEATURE: True
   LATENT_SPACE_SIZE: 128
   LAYER_COUNT: 6
@@ -66,14 +47,12 @@ MODEL:
   CHANNELS: 1
   UNIQ_WORDS: 50
   MAPPING_FROM_ECOG: "ECoGMappingBottleneck"
-  # MAPPING_FROM_ECOG: "ECoGMappingTransformer"
   ECOG: False #will be overloaded if FINETUNE
   SUPLOSS_ON_ECOGF: False # will be overloaded to FIX_GEN if FINETUNE,spec supervise loss only apply to ecog encoder
   W_SUP: False
   GAN: True
   GENERATOR: "GeneratorFormant"
   ENCODER: "EncoderFormant"
-  ECOG_COMPUTE_DB_LOUDNESS: True
   AVERAGE_W: True
   TEMPORAL_W: True
   GLOBAL_W: True
@@ -100,16 +79,7 @@ MODEL:
     N_HEADS : 4
     NON_LOCAL: True
   # ATTENTION: []
-OUTPUT_DIR: output/audio_11021700 #training_artifacts/debug_
-# OUTPUT_DIR: training_artifacts/loudnesscomp_han5_ampamploss
-# OUTPUT_DIR: training_artifacts/loudnesscomp_han5_ampsynth_masknormed
-# OUTPUT_DIR: training_artifacts/debug_f1f2linearmel
-# OUTPUT_DIR: training_artifacts/ecog_finetune_3ecogformants_han5_specsup_guidance_hamonicformantsemph
-# OUTPUT_DIR: training_artifacts/ecog_finetune_3ecogformants_han5_specsup_guidance_hamonicnoiseformantsemphmore
-# OUTPUT_DIR: training_artifacts/formantsythv2_wavebased_NY742_constraintonFB_Bconstrainrefined_absfreq_4formants_1noiseformants_bgnoise_noisemapping_freqconv_duomask
-# OUTPUT_DIR: training_artifacts/ecog_residual_latent128_temporal_lesstemporalfeature_noprogressive_HBw_ppl_ppld_localreg_ecogf_w_spec_sup
-# OUTPUT_DIR: training_artifacts/ecog_residual_latent128_temporal_lesstemporalfeature_ppl_ppld
-# OUTPUT_DIR: training_artifacts/ecog_residual_cycle_attention3264wStyleIN_specchan64_more_attentfeatures_heads4
+OUTPUT_DIR: 'output'
 IGNORE_LOADING: False
 FINETUNE:
   FINETUNE: False
@@ -117,15 +87,12 @@ FINETUNE:
   ENCODER_GUIDE: True
   SPECSUP: True
   APPLY_FLOODING: True
-
 VISUAL:
   VISUAL: False
   WEIGHTED_VIS: False
   KEY: 'freq_formants_hamon'
   INDEX: [0]
   A2A: False
-#####################################
-
 TRAIN:
   PROGRESSIVE: False
   W_WEIGHT: 1
@@ -139,13 +106,6 @@ TRAIN:
   LOD_2_BATCH_8GPU: [512, 256, 128,   64,   32,    32] # If GPU memory ~16GB reduce last number from 32 to 24
   LOD_2_BATCH_4GPU: [64, 64, 64,   64,   32,    16]
   LOD_2_BATCH_2GPU: [64, 64, 64,   64,   32,    16]
-  # LOD_2_BATCH_1GPU: [512, 256, 128,   64,   32,    16]
-  # LOD_2_BATCH_1GPU: [512, 256, 128,   64,   32,    32]
-  # LOD_2_BATCH_1GPU: [512, 256, 128,   64,   32,    16]
-  # LOD_2_BATCH_1GPU: [128, 128, 128,   128,   64,    32]
-  # LOD_2_BATCH_1GPU: [512, 256, 256,   128,   64,    16]
   LOD_2_BATCH_1GPU: [64, 64, 64,   64,   32,    16]
   BATCH_SIZE : 32
-  # BATCH_SIZE : 2
   LEARNING_RATES: [0.0015,  0.0015,   0.0015,    0.002,     0.003,    0.003]
-  # LEARNING_RATES: [0.0015,  0.0015,   0.0005,    0.0003,     0.0003,    0.0002]

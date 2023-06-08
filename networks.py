@@ -2008,6 +2008,122 @@ class ECoGMappingBlock_causal(nn.Module):
             x = F.leaky_relu(self.norm2(self.conv2(x)), 0.2)
         return x
 
+formant_freq_limits_diff = torch.tensor([950.,2450.,2100.]).reshape([1,3,1]) #freq difference
+formant_freq_limits_diff_low = torch.tensor([300.,300.,0.]).reshape([1,3,1]) #freq difference
+formant_freq_limits_abs = torch.tensor([950.,3400.,3800.,5000.,6000.,7000.]).reshape([1,6,1]) #freq difference
+formant_freq_limits_abs_low = torch.tensor([300.,700.,1800.,3400,5000.,6000.]).reshape([1,6,1]) #freq difference
+formant_freq_limits_abs_noise = torch.tensor([8000.,7000.,7000.]).reshape([1,3,1]) #freq difference
+formant_freq_limits_abs_noise_low = torch.tensor([4000.,3000.,3000.]).reshape([1,3,1]) #freq difference
+formant_bandwitdh_ratio = Parameter(torch.Tensor(1))
+formant_bandwitdh_slop = Parameter(torch.Tensor(1))
+class Speech_Para_Prediction(nn.Module):
+    def __init__(self, causal, anticausal, compute_db_loudness=False, n_formants= 6,n_formants_noise=1,\
+                 n_mels=32,network_db=False,input_channel=32):
+        super(Speech_Para_Prediction, self).__init__()
+        norm = GroupNormXDim
+        
+        self.n_formants = n_formants
+        self.n_mels = n_mels
+        self.n_formants_noise = n_formants_noise
+        self.compute_db_loudness = compute_db_loudness
+        self.network_db = network_db
+        self.formant_freq_limits_diff = formant_freq_limits_diff
+        self.formant_freq_limits_diff_low = formant_freq_limits_diff_low
+        self.formant_freq_limits_abs = formant_freq_limits_abs
+        self.formant_freq_limits_abs_low = formant_freq_limits_abs_low
+        self.formant_freq_limits_abs_noise = formant_freq_limits_abs_noise
+        self.formant_freq_limits_abs_noise_low = formant_freq_limits_abs_noise_low
+        self.formant_bandwitdh_ratio = formant_bandwitdh_ratio
+        self.formant_bandwitdh_slop = formant_bandwitdh_slop
+        with torch.no_grad():
+            nn.init.constant_(self.formant_bandwitdh_ratio,0)
+            nn.init.constant_(self.formant_bandwitdh_slop,0)
+        
+        self.conv_fundementals = ln_c.Conv1d(input_channel,32,3,1,1 ,causal=causal,anticausal = anticausal)
+        self.norm_fundementals = norm(32,32)
+        self.f0_drop = nn.Dropout()
+        self.conv_f0 = ln_c.Conv1d(32,1,1,1,0 ,causal=causal,anticausal = anticausal)
+        self.conv_amplitudes = ln_c.Conv1d(input_channel,2,1,1,0 ,causal=causal,anticausal = anticausal)
+        self.conv_amplitudes_h = ln_c.Conv1d(input_channel,2,1,1,0 ,causal=causal,anticausal = anticausal)
+        if compute_db_loudness:
+            self.conv_loudness = ln_c.Conv1d(input_channel,1,1,1,0 ,causal=causal,anticausal = anticausal)
+        else:
+            self.conv_loudness = ln_c.Conv1d(input_channel,1,1,1,0,bias_initial=-9.  ,causal=causal,anticausal = anticausal)
+        self.conv_formants = ln_c.Conv1d(input_channel,32,3,1,1 ,causal=causal,anticausal = anticausal)
+        self.norm_formants = norm(32,32)
+        self.conv_formants_freqs = ln_c.Conv1d(32,n_formants,1,1,0 ,causal=causal,anticausal = anticausal)
+        self.conv_formants_bandwidth = ln_c.Conv1d(32,n_formants,1,1,0 ,causal=causal,anticausal = anticausal)
+        self.conv_formants_amplitude = ln_c.Conv1d(32,n_formants,1,1,0 ,causal=causal,anticausal = anticausal)
+        self.conv_formants_freqs_noise = ln_c.Conv1d(32,n_formants_noise,1,1,0 ,causal=causal,anticausal = anticausal)
+        self.conv_formants_bandwidth_noise = ln_c.Conv1d(32,n_formants_noise,1,1,0 ,causal=causal,anticausal = anticausal)
+        self.conv_formants_amplitude_noise = ln_c.Conv1d(32,n_formants_noise,1,1,0 ,causal=causal,anticausal = anticausal)
+    def forward(self, x_common):
+        if self.compute_db_loudness:
+            loudness = F.sigmoid(self.conv_loudness(x_common)) #0-1
+            loudness = loudness*200-100 #-100 ~ 100 db
+            loudness = 10**(loudness/10.) #amplitude
+        else:
+            loudness = F.softplus(self.conv_loudness(x_common))
+        logits = self.conv_amplitudes(x_common)
+        amplitudes_logsoftmax = F.log_softmax(logits,dim=1)
+        amplitudes_h = F.softmax(self.conv_amplitudes_h(x_common),dim=1)
+        x_fundementals = self.f0_drop(F.leaky_relu(self.norm_fundementals(self.conv_fundementals(x_common)),0.2))
+        f0_hz = torch.sigmoid(self.conv_f0(x_fundementals)) * 332 + 88 # 88hz < f0 < 420 hz
+        f0 = torch.clamp(mel_scale(self.n_mels,f0_hz)/(self.n_mels*1.0),min=0.0001)
+
+        x_formants = F.leaky_relu(self.norm_formants(self.conv_formants(x_common)),0.2)
+        formants_freqs = torch.sigmoid(self.conv_formants_freqs(x_formants))
+        formants_freqs_hz = formants_freqs*(self.formant_freq_limits_abs[:,:self.n_formants]-self.formant_freq_limits_abs_low[:,:self.n_formants])+self.formant_freq_limits_abs_low[:,:self.n_formants]
+        formants_freqs = torch.clamp(mel_scale(self.n_mels,formants_freqs_hz)/(self.n_mels*1.0),min=0)
+        formants_bandwidth_hz = 0.65*(0.00625*torch.relu(formants_freqs_hz)+375)
+        formants_bandwidth = bandwidth_mel(formants_freqs_hz,formants_bandwidth_hz,self.n_mels)
+        formants_amplitude_logit = self.conv_formants_amplitude(x_formants)
+        formants_freqs_noise = torch.sigmoid(self.conv_formants_freqs_noise(x_formants))
+        formants_freqs_hz_noise = formants_freqs_noise*(self.formant_freq_limits_abs_noise[:,:self.n_formants_noise]-self.formant_freq_limits_abs_noise_low[:,:self.n_formants_noise])+self.formant_freq_limits_abs_noise_low[:,:self.n_formants_noise]
+        formants_freqs_hz_noise = torch.cat([formants_freqs_hz,formants_freqs_hz_noise],dim=1)
+        formants_freqs_noise = torch.clamp(mel_scale(self.n_mels,formants_freqs_hz_noise)/(self.n_mels*1.0),min=0)
+        formants_bandwidth_hz_noise = self.conv_formants_bandwidth_noise(x_formants)
+        formants_bandwidth_hz_noise_1 = F.softplus(formants_bandwidth_hz_noise[:,:1]) * 2344 + 586 #2000-10000
+        formants_bandwidth_hz_noise_2 = torch.sigmoid(formants_bandwidth_hz_noise[:,1:]) * 586 #0-2000
+        formants_bandwidth_hz_noise = torch.cat([formants_bandwidth_hz_noise_1,formants_bandwidth_hz_noise_2],dim=1)
+        formants_bandwidth_hz_noise = torch.cat([formants_bandwidth_hz,formants_bandwidth_hz_noise],dim=1)
+        formants_bandwidth_noise = bandwidth_mel(formants_freqs_hz_noise,formants_bandwidth_hz_noise,self.n_mels)
+        formants_amplitude_noise_logit = self.conv_formants_amplitude_noise(x_formants)
+        formants_amplitude_noise_logit = torch.cat([formants_amplitude_logit,formants_amplitude_noise_logit],dim=1)
+        if self.network_db:
+            formants_amplitude = torch.sigmoid(formants_amplitude_logit )    
+            formants_amplitude_noise = torch.sigmoid(formants_amplitude_noise_logit )
+            amplitudes = torch.sigmoid(logits ) 
+            amplitudes = db_to_amp(amplitudes)
+            formants_amplitude_noise = db_to_amp(formants_amplitude_noise)
+            formants_amplitude = db_to_amp(formants_amplitude)
+            amplitudes = amplitudes/torch.sum(amplitudes,dim=1,keepdim=True)
+            formants_amplitude_noise = formants_amplitude_noise/torch.sum(formants_amplitude_noise,dim=1,keepdim=True)
+            formants_amplitude = formants_amplitude/torch.sum(formants_amplitude,dim=1,keepdim=True)
+        else:
+            formants_amplitude = F.softmax(formants_amplitude_logit,dim=1)    
+            formants_amplitude_noise = F.softmax(formants_amplitude_noise_logit,dim=1)
+            amplitudes = F.softmax(logits,dim=1) 
+            
+        components = { 'f0':f0 ,
+                    'f0_hz':f0_hz ,
+                    'loudness':loudness ,
+                    'amplitudes':amplitudes ,
+                    'amplitudes_logsoftmax':amplitudes_logsoftmax ,
+                    'amplitudes_h':amplitudes_h ,
+                    'freq_formants_hamon':formants_freqs,
+                    'bandwidth_formants_hamon':formants_bandwidth ,
+                    'freq_formants_hamon_hz':formants_freqs_hz ,
+                    'bandwidth_formants_hamon_hz':formants_bandwidth_hz ,
+                    'amplitude_formants_hamon':formants_amplitude ,
+                    'freq_formants_noise':formants_freqs_noise ,
+                    'bandwidth_formants_noise':formants_bandwidth_noise ,
+                    'freq_formants_noise_hz':formants_freqs_hz_noise ,
+                    'bandwidth_formants_noise_hz':formants_bandwidth_hz_noise ,
+                    'amplitude_formants_noise':formants_amplitude_noise ,
+        }
+        return components
+        
 
 class BasicRNN(torch.nn.Module):
     """vanilla rnn"""
@@ -2219,13 +2335,16 @@ class ECoGMapping_Bottleneck_ran(nn.Module):
         x = self.dropout(x)
         x = self.conv4(x)
         x = self.dropout(x)
+        #C*8*2*2
         x = x.max(-1)[0].max(-1)[0]
+        #C*8*1*1
         x = self.conv5(F.leaky_relu(self.norm(x), 0.2))
         x = self.norm2(x)
         x = self.conv6(F.leaky_relu(x, 0.2))
         x = self.conv7(F.leaky_relu(self.norm3(x), 0.2))
         x = self.conv8(F.leaky_relu(self.norm4(x), 0.2))
         x = self.conv9(F.leaky_relu(self.norm5(x), 0.2))
+        #C'*128
         x_common = F.leaky_relu(self.norm6(x), 0.2)
         # print (x_common.shape)
         if self.GR:

@@ -14,7 +14,7 @@ class ECoGDataset(Dataset):
         
     def __init__(self, cfg,ReqSubjDict, mode = 'train', train_param = None,BCTS=None,world_size=1,ReshapeAsGrid=None,
                  DEBUG=False, rearrange_elec=0, low_density = True, process_ecog = True, formant_label = False, allsubj_param = None, 
-                 pitch_label = False, intensity_label = False, data_dir = 'data/data/LD_data_extracted/meta_data'):
+                 pitch_label = False, intensity_label = False, data_dir = 'data/'):
         """ ReqSubjDict can be a list of multiple subjects"""
         super(ECoGDataset, self).__init__()
         self.DEBUG = DEBUG
@@ -43,7 +43,7 @@ class ECoGDataset(Dataset):
         for sample in ReqSubjDict:
             meta_h5_file = os.path.join(data_dir,sample + '.h5')
             if not os.path.exists(meta_h5_file):
-                print(FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), meta_h5_file))
+                raise FileNotFoundError(meta_h5_file) 
             else:
                 meta_data =  h5py.File(meta_h5_file) 
             for k, v in meta_data.items():
@@ -56,11 +56,10 @@ class ECoGDataset(Dataset):
             print (k, len(v))
         self.TestNum_cum = np.array([np.sum(train_param["Subj"][subj]['TestNum'] ).astype(np.int32) for subj in ReqSubjDict])
         print ('self.meta_data[ TestNum_cum s]',  self.TestNum_cum)
-        
         print (self.meta_data.keys())
         self.dataset_names  = ReqSubjDict
         if train_param == None:
-            with open('train_param_e2a_production.json','r') as rfile:
+            with open('configs/train_param_production.json','r') as rfile:
                 train_param = json.load(rfile)
         else:
             pass
@@ -109,29 +108,22 @@ class ECoGDataset(Dataset):
         self.end_ind_re_valid_alldataset = self.meta_data['end_ind_re_valid_alldataset']
         self.wave_spec_re_alldataset = self.meta_data['wave_re_spec_alldataset']
         self.wave_re_alldataset = self.meta_data['wave_re_alldataset']
-        self.wave_spec_alldataset = self.meta_data['wave_re_spec_alldataset']
         self.wave_spec_re_amp_alldataset = self.meta_data['wave_re_spec_amp_alldataset']
-        self.wave_alldataset = self.meta_data['wave_re_alldataset']
         
     def __len__(self):
         print ('length, self.TestNum_cum', self.TestNum_cum)
         if self.DEBUG:
             repeattimes = 1
         else:
-            repeattimes = 1
+            repeattimes = 16
         if self.mode == 'train':
-            if self.Prod:
-                return np.array([start_ind_re_alldataset.shape[0]*(repeattimes if 'NY798' in self.ReqSubjDict else repeattimes)//self.world_size for start_ind_re_alldataset in self.meta_data['start_ind_re_alldataset']]).sum()
-            else:
-                return np.array([start_ind_alldataset.shape[0]*repeattimes for start_ind_alldataset in self.meta_data['start_ind_alldataset']]).sum()
+            return np.array([start_ind_re_alldataset.shape[0]*(repeattimes if 'NY798' in self.ReqSubjDict else repeattimes)//self.world_size for start_ind_re_alldataset in self.meta_data['start_ind_re_valid_alldataset']]).sum()
         else:
             return self.TestNum_cum[0]
 
     def __getitem__(self, idx):
-
         n_delay_1 = -16 
         n_delay_2 = 0
-
         num_dataset = len(self.ecog_alldataset)
         mni_coordinate_all = []
         regions_all =[]
@@ -149,7 +141,6 @@ class ECoGDataset(Dataset):
         on_stage_wider_re_batch_all = []
         self.SeqLenSpkr = self.SeqLen*int(self.DOWN_TF_FS*1.0/self.DOWN_ECOG_FS)
         pre_articulate_len = self.ahead_onset_test
-        imagesize = 2**self.current_lod
         for i in range(num_dataset):
             if self.mode =='train':
                 rand_ind = np.random.choice(np.arange(self.start_ind_re_valid_alldataset[i].shape[0])[:-self.TestNum_cum[i]],1,replace=False)[0]
@@ -167,9 +158,9 @@ class ECoGDataset(Dataset):
                 formant_batch_re = np.zeros(( self.SeqLenSpkr, 6))
                 pitch_batch_re = np.zeros(( self.SeqLenSpkr))
                 intensity_batch_re = np.zeros(( self.SeqLenSpkr))
-                wave_batch_re = np.zeros(( (self.SeqLen*int(self.DOWN_WAVE_FS*1.0/self.DOWN_ECOG_FS)),self.wave_alldataset[i].shape[-1]))
+                wave_batch_re = np.zeros(( (self.SeqLen*int(self.DOWN_WAVE_FS*1.0/self.DOWN_ECOG_FS)),self.wave_re_alldataset[i].shape[-1]))
                 if self.wavebased:
-                    wave_spec_batch_re = np.zeros(( self.SeqLen, self.wave_spec_alldataset[i].shape[-1]))
+                    wave_spec_batch_re = np.zeros(( self.SeqLen, self.wave_spec_re_alldataset[i].shape[-1]))
             if self.mode =='test' or self.pre_articulate:
                 indx_re = start_indx_re-self.ahead_onset_test
             elif self.mode =='train':
@@ -263,11 +254,7 @@ class TFRecordsDataset:
                 process_ecog = process_ecog, formant_label = formant_label, pitch_label = pitch_label, \
                     intensity_label = intensity_label,DEBUG=DEBUG)
         print (self.dataset.meta_data.keys())
-        if cfg.DATASET.PROD:
-            self.noise_dist = self.dataset.meta_data['noisesample_re_alldataset'][0]
-        else:
-            self.noise_dist = self.dataset.meta_data['noisesample_alldataset'][0]
-        #import pdb;pdb.set_trace()
+        self.noise_dist = self.dataset.meta_data['noisesample_re_alldataset'][0]
         self.cfg = cfg
         self.logger = logger
         self.rank = rank
@@ -288,34 +275,14 @@ class TFRecordsDataset:
         self.seed = seed
         self.train = train
         self.needs_labels = needs_labels
-
         assert self.part_count % world_size == 0
-
         self.part_count_local = self.part_count // world_size
-
-        if train:
-            path = cfg.DATASET.PATH
-        else:
-            path = cfg.DATASET.PATH_TEST
-
-        for r in range(2, cfg.DATASET.MAX_RESOLUTION_LEVEL + 1):
-            files = []
-            for i in range(self.part_count_local * rank, self.part_count_local * (rank + 1)):
-                file = path % (r, i)
-                files.append(file)
-            self.filenames[r] = files
-
         self.buffer_size_b = 1024 ** 2 * buffer_size_mb
-
-        self.current_filenames = []
-        #import pdb;pdb.set_trace()
         self.iterator = torch.utils.data.DataLoader(self.dataset,
                                                batch_size=self.batch_size,
                                                shuffle=True if self.train else False,
                                                drop_last=True if self.train else False)
     def reset(self, lod, batch_size):
-        assert lod in self.filenames.keys()
-        self.current_filenames = self.filenames[lod]
         if batch_size!=self.batch_size:
             self.iterator = torch.utils.data.DataLoader(self.dataset,
                                                batch_size=batch_size,

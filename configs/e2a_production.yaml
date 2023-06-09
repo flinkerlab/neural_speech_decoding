@@ -1,6 +1,6 @@
 
-
-NAME: ecog
+#### production
+NAME: 'ecog'
 DATASET:
   SPEC_CHANS: 64
   TEMPORAL_SAMPLES: 128

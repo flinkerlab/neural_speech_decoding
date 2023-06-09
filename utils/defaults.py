@@ -20,7 +20,6 @@ _C = CN()
 
 _C.NAME = ""
 _C.PPL_CELEBA_ADJUSTMENT = False
-_C.OUTPUT_DIR = "results"
 _C.LOAD_DIR = "default"
 _C.IGNORE_LOADING = True
 
@@ -147,7 +146,7 @@ _C.MODEL.conv_method = "both"
 _C.MODEL.classic_attention = True
 _C.MODEL.CAUSAL = False
 _C.MODEL.ANTICAUSAL = False
-
+_C.MODEL.OUTPUT_DIR = "results"
 
 
 _C.MODEL.TRANSFORMER = CN()

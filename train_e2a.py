@@ -173,11 +173,11 @@ parser.add_argument("--batch_size", type=int, default=8, help="batch_size")
 parser.add_argument(
     "--param_file",
     type=str,
-    default="configs/e2a_production.json",
+    default="configs/e2a_production.yaml",
     help="param_file",
 )
 parser.add_argument(
-    "--pretrained_model_dir", type=str, default="", help="pretrained_model_dir"
+    "--pretrained_model_dir", type=str, default="output/a2a/NY869", help="pretrained_model_dir"
 )
 parser.add_argument("--causal", type=int, default=0, help="causal")
 parser.add_argument("--anticausal", type=int, default=0, help="anticausal")
@@ -191,6 +191,8 @@ parser.add_argument("--use_stoi", type=int, default=0, help="Use STOI+ loss or n
 parser.add_argument(
     "--use_denoise", type=int, default=0, help="Use denoise audio or not"
 )
+parser.add_argument('--noise_db',  type=float, default=-50,
+                help='distill use or not ')
 args_ = parser.parse_args()
 
 with open("configs/AllSubjectInfo.json", "r") as rfile:

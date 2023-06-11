@@ -1067,16 +1067,6 @@ def save_sample(
                 .detach()
                 .cpu()
                 .numpy(),
-                "org_denoise": amplitude(
-                    torch.cat(x_denoise.unbind(), 0)
-                    .transpose(-2, -1)
-                    .detach()
-                    .cpu()
-                    .numpy(),
-                    noise_db,
-                    max_db,
-                    trim_noise=True,
-                ),
                 "rec_denoise": rec_denoise_all,
                 "lable": labels,
             }

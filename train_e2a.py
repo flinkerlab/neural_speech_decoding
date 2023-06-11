@@ -13,27 +13,23 @@
 # limitations under the License.
 # ==============================================================================
 
-DEBUG = 0
 LOAD = 1
 
 import torch
 from torch import optim as optim
 import torch.utils.data
-from checkpointer import Checkpointer
-from custom_adam import LREQAdam
 from tqdm import tqdm as tqdm
 import numpy as np
-import argparse, os, json
-
+import argparse, os, json, yaml
 from networks import *
 from model import Model
 from dataset import *
-
-from utils.tracker import LossTracker
+from tracker import LossTracker
+from utils.custom_adam import LREQAdam
+from utils.checkpointer import Checkpointer
 from utils.launcher import run
 from utils.defaults import get_cfg_defaults
 from utils.save import save_sample
-
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 parser = argparse.ArgumentParser(description="ecog formant model")
@@ -73,12 +69,12 @@ parser.add_argument(
     help="ignore_loading true: from scratch, false: load pretrainde model and finetune",
 )
 parser.add_argument(
-    "--finetune", type=int, default=0, help="finetune could influence load checkpoint"
+    "--finetune", type=int, default=1, help="finetune could influence load checkpoint"
 )
 parser.add_argument(
     "--learnedmask",
     type=int,
-    default=0,
+    default=1,
     help="finetune could influence load checkpoint",
 )
 parser.add_argument(
@@ -97,7 +93,7 @@ parser.add_argument(
     "--intensity_supervision", type=int, default=0, help="intensity_supervision"
 )
 parser.add_argument(
-    "--n_filter_samples", type=int, default=20, help="distill use or not "
+    "--n_filter_samples", type=int, default=80, help="n_filter_samples"
 )
 parser.add_argument(
     "--n_fft",
@@ -119,13 +115,6 @@ parser.add_argument(
     type=float,
     default=-1,
     help="used to determine onstage, 0 means we use the default setting in Dataset.json",
-)
-parser.add_argument("--RNN_TYPE", type=str, default="LSTM", help="LSTM or GRU")
-parser.add_argument(
-    "--RNN_LAYERS",
-    type=int,
-    default=1,
-    help="lstm layers/3D swin transformer model ind",
 )
 parser.add_argument(
     "--RNN_COMPUTE_DB_LOUDNESS", type=int, default=1, help="RNN_COMPUTE_DB_LOUDNESS"
@@ -182,10 +171,6 @@ parser.add_argument("--causal", type=int, default=0, help="causal")
 parser.add_argument("--anticausal", type=int, default=0, help="anticausal")
 parser.add_argument("--rdropout", type=float, default=0, help="rdropout")
 parser.add_argument("--epoch_num", type=int, default=100, help="epoch num")
-parser.add_argument("--n_layers", type=int, default=4, help="RNN n_layers")
-parser.add_argument("--n_rnn_units", type=int, default=256, help="RNN n_rnn_units")
-parser.add_argument("--n_classes", type=int, default=128, help="RNN n_classes")
-parser.add_argument("--dropout", type=float, default=0.3, help="RNN dropout")
 parser.add_argument("--use_stoi", type=int, default=0, help="Use STOI+ loss or not")
 parser.add_argument(
     "--use_denoise", type=int, default=0, help="Use denoise audio or not"
@@ -196,9 +181,8 @@ args_ = parser.parse_args()
 
 with open("configs/AllSubjectInfo.json", "r") as rfile:
     allsubj_param = json.load(rfile)
-with open(args_.param_file, "r") as rfile:
-    param = json.load(rfile)
-
+with open(args_.param_file, 'r') as stream:
+    param = yaml.safe_load(stream)
 
 
 (
@@ -207,11 +191,10 @@ with open(args_.param_file, "r") as rfile:
     x_orig_all,
     x_orig_amp_all,
     labels_all,
-    mni_coordinate_all,
     gender_train_all,
     on_stage_all,
-    on_stage_wider_all,
-) = ({}, {}, {}, {}, {}, {}, {}, {}, {})
+    on_stage_wider_all
+) = ({}, {}, {}, {}, {}, {}, {}, {})
 hann_win = torch.hann_window(21, periodic=False).reshape([1, 1, 21, 1])
 hann_win = hann_win / hann_win.sum()
 
@@ -221,7 +204,6 @@ def get_train_data(
     x_orig_all,
     x_orig_amp_all,
     labels_all,
-    mni_coordinate_all,
     gender_train_all,
     on_stage_all,
     on_stage_wider_all,
@@ -231,6 +213,7 @@ def get_train_data(
     wave_orig_all[subject] = (
         sample_dict_train["wave_re_batch_all"].to(device).float()
     )
+    gender_train_all[subject] =sample_dict_train['gender_all'].to(device).float()
     if cfg.MODEL.WAVE_BASED:
         x_orig_all[subject] = (
             sample_dict_train["wave_spec_re_batch_all"].to(device).float()
@@ -245,17 +228,7 @@ def get_train_data(
         sample_dict_train["on_stage_wider_re_batch_all"].to(device).float()
     )
     labels_all[subject] = sample_dict_train["label_batch_all"]
-    gender_train_all[subject] = sample_dict_train["gender_all"]
-    ecog_all[subject] = [
-        sample_dict_train["ecog_re_batch_all"][j].to(device).float()
-        for j in range(len(sample_dict_train["ecog_re_batch_all"]))
-    ]
-    mni_coordinate_all[subject] = (
-        sample_dict_train["mni_coordinate_all"].to(device).float()
-    )
-    #x_all[subject] = x_orig_all[subject]
-    #x_mel_all[subject] = sample_dict_train["spkr_re_batch_all"]
-    ecog_all[subject] = torch.cat(ecog_all[subject], dim=0)
+    ecog_all[subject] = sample_dict_train["ecog_re_batch_all"].to(device).float()
 
     return (
         ecog_all,
@@ -263,7 +236,6 @@ def get_train_data(
         x_orig_all,
         x_orig_amp_all,
         labels_all,
-        mni_coordinate_all,
         gender_train_all,
         on_stage_all,
         on_stage_wider_all,
@@ -278,7 +250,7 @@ def load_model_checkpoint(
     dataset_all=None,
     subject="NY742",
     load_dir="",
-    single_patient_mapping=0,
+    single_patient_mapping=0,param=None
 ):
     if args_.trainsubject != "":
         train_subject_info = args_.trainsubject.split(",")
@@ -297,29 +269,13 @@ def load_model_checkpoint(
         noise_db=cfg.MODEL.NOISE_DB,
         max_db=cfg.MODEL.MAX_DB,
         with_ecog=cfg.MODEL.ECOG,
-        encoder_only=cfg.MODEL.TRANSFORMER.ENCODER_ONLY,
-        attentional_mask=cfg.MODEL.TRANSFORMER.ATTENTIONAL_MASK,
-        n_heads=cfg.MODEL.TRANSFORMER.N_HEADS,
-        non_local=cfg.MODEL.TRANSFORMER.NON_LOCAL,
         do_mel_guide=cfg.MODEL.DO_MEL_GUIDE,
         noise_from_data=cfg.MODEL.BGNOISE_FROMDATA and cfg.DATASET.PROD,
         specsup=cfg.FINETUNE.SPECSUP,
         power_synth=cfg.MODEL.POWER_SYNTH,
-        onedconfirst=cfg.MODEL.ONEDCONFIRST,
-        rnn_type=cfg.MODEL.RNN_TYPE,
-        rnn_layers=cfg.MODEL.RNN_LAYERS,
-        compute_db_loudness=cfg.MODEL.RNN_COMPUTE_DB_LOUDNESS,
-        bidirection=cfg.MODEL.BIDIRECTION,
-        experiment_key=cfg.MODEL.EXPERIMENT_KEY,
-        attention_type=cfg.MODEL.TRANSFORMER.FASTATTENTYPE,
-        phoneme_weight=cfg.MODEL.PHONEMEWEIGHT,
-        ecog_compute_db_loudness=cfg.MODEL.ECOG_COMPUTE_DB_LOUDNESS,
         apply_flooding=cfg.FINETUNE.APPLY_FLOODING,
         normed_mask=cfg.MODEL.NORMED_MASK,
         dummy_formant=cfg.MODEL.DUMMY_FORMANT,
-        Visualize=args_.occlusion,
-        key=cfg.VISUAL.KEY,
-        index=cfg.VISUAL.INDEX,
         A2A=cfg.VISUAL.A2A,
         causal=cfg.MODEL.CAUSAL,
         anticausal=cfg.MODEL.ANTICAUSAL,
@@ -345,23 +301,14 @@ def load_model_checkpoint(
         distill=cfg.MODEL.distill,
         learned_mask=cfg.MODEL.LEARNED_MASK,
         n_filter_samples=cfg.MODEL.N_FILTER_SAMPLES,
-        dynamic_bgnoise=not (cfg.DATASET.PROD),
         patient=subject,
-        mapping_layers=cfg.MODEL.mapping_layers,
-        single_patient_mapping=single_patient_mapping,
-        region_index=cfg.MODEL.region_index,
         batch_size=cfg.TRAIN.BATCH_SIZE,
-        multiscale=cfg.MODEL.multiscale,
         rdropout=cfg.MODEL.rdropout,
         dynamic_filter_shape=cfg.MODEL.DYNAMIC_FILTER_SHAPE,
         learnedbandwidth=cfg.MODEL.LEARNEDBANDWIDTH,
         gender_patient=allsubj_param["Subj"][train_subject_info[0]]["Gender"],
         reverse_order=args_.reverse_order,
         larger_capacity=args_.lar_cap,
-        n_rnn_units=args_.n_rnn_units,
-        n_layers=args_.n_layers,
-        dropout=args_.dropout,
-        n_classes=args_.n_classes,
         use_stoi=args_.use_stoi,
     )
 
@@ -382,29 +329,13 @@ def load_model_checkpoint(
         noise_db=cfg.MODEL.NOISE_DB,
         max_db=cfg.MODEL.MAX_DB,
         with_ecog=cfg.MODEL.ECOG,
-        encoder_only=cfg.MODEL.TRANSFORMER.ENCODER_ONLY,
-        attentional_mask=cfg.MODEL.TRANSFORMER.ATTENTIONAL_MASK,
-        n_heads=cfg.MODEL.TRANSFORMER.N_HEADS,
-        non_local=cfg.MODEL.TRANSFORMER.NON_LOCAL,
         do_mel_guide=cfg.MODEL.DO_MEL_GUIDE,
         noise_from_data=cfg.MODEL.BGNOISE_FROMDATA and cfg.DATASET.PROD,
         specsup=cfg.FINETUNE.SPECSUP,
         power_synth=cfg.MODEL.POWER_SYNTH,
-        onedconfirst=cfg.MODEL.ONEDCONFIRST,
-        rnn_type=cfg.MODEL.RNN_TYPE,
-        rnn_layers=cfg.MODEL.RNN_LAYERS,
-        compute_db_loudness=cfg.MODEL.RNN_COMPUTE_DB_LOUDNESS,
-        bidirection=cfg.MODEL.BIDIRECTION,
-        experiment_key=cfg.MODEL.EXPERIMENT_KEY,
-        attention_type=cfg.MODEL.TRANSFORMER.FASTATTENTYPE,
-        phoneme_weight=cfg.MODEL.PHONEMEWEIGHT,
-        ecog_compute_db_loudness=cfg.MODEL.ECOG_COMPUTE_DB_LOUDNESS,
         apply_flooding=cfg.FINETUNE.APPLY_FLOODING,
         normed_mask=cfg.MODEL.NORMED_MASK,
         dummy_formant=cfg.MODEL.DUMMY_FORMANT,
-        Visualize=args_.occlusion,
-        key=cfg.VISUAL.KEY,
-        index=cfg.VISUAL.INDEX,
         A2A=cfg.VISUAL.A2A,
         causal=cfg.MODEL.CAUSAL,
         anticausal=cfg.MODEL.ANTICAUSAL,
@@ -430,23 +361,14 @@ def load_model_checkpoint(
         distill=cfg.MODEL.distill,
         learned_mask=cfg.MODEL.LEARNED_MASK,
         n_filter_samples=cfg.MODEL.N_FILTER_SAMPLES,
-        dynamic_bgnoise=not (cfg.DATASET.PROD),
         patient=subject,
-        mapping_layers=cfg.MODEL.mapping_layers,
-        single_patient_mapping=single_patient_mapping,
-        region_index=cfg.MODEL.region_index,
         batch_size=cfg.TRAIN.BATCH_SIZE,
-        multiscale=cfg.MODEL.multiscale,
         rdropout=cfg.MODEL.rdropout,
         dynamic_filter_shape=cfg.MODEL.DYNAMIC_FILTER_SHAPE,
         learnedbandwidth=cfg.MODEL.LEARNEDBANDWIDTH,
         gender_patient=allsubj_param["Subj"][train_subject_info[0]]["Gender"],
         reverse_order=args_.reverse_order,
         larger_capacity=args_.lar_cap,
-        n_rnn_units=args_.n_rnn_units,
-        n_layers=args_.n_layers,
-        dropout=args_.dropout,
-        n_classes=args_.n_classes,
         use_stoi=args_.use_stoi,
     )
     if torch.cuda.is_available():
@@ -592,12 +514,13 @@ def load_model_checkpoint(
     checkpointer = Checkpointer(
         cfg, model_dict, auxiliary, logger=logger, save=local_rank == 0
     )
-    extra_checkpoint_data = checkpointer.load(
-        ignore_last_checkpoint=True if (DEBUG and not LOAD) else False,
-        ignore_auxiliary=True,
-        file_name=load_dir,
-    )
-    arguments.update(extra_checkpoint_data)
+    if LOAD:
+        extra_checkpoint_data = checkpointer.load(
+            ignore_last_checkpoint=True if not LOAD else False,
+            ignore_auxiliary=True,
+            file_name=load_dir,
+        )
+        arguments.update(extra_checkpoint_data)
     return (
         checkpointer,
         model,
@@ -610,22 +533,14 @@ def load_model_checkpoint(
         tracker_test,
     )
 
-
 def train(cfg, logger, local_rank, world_size, distributed):
     if torch.cuda.is_available():
         torch.cuda.set_device(local_rank)
-    with open(args_.param_file, "r") as rfile:
-        param = json.load(rfile)
+    with open('configs/train_param_production.json', 'r') as stream:
+        param = json.load(stream)
     dataset_all, dataset_test_all = {}, {}
-
-    if args_.trainsubject != "":
-        train_subject_info = args_.trainsubject.split(",")
-    else:
-        train_subject_info = cfg.DATASET.SUBJECT
-    if args_.testsubject != "":
-        test_subject_info = args_.testsubject.split(",")
-    else:
-        test_subject_info = cfg.DATASET.SUBJECT
+    train_subject_info = args_.trainsubject.split(",") if args_.trainsubject != "" else cfg.DATASET.SUBJECT 
+    test_subject_info = args_.testsubject.split(",") if args_.testsubject != "" else cfg.DATASET.SUBJECT
 
     for subject in np.union1d(train_subject_info, test_subject_info):
         dataset_all[subject] = TFRecordsDataset(
@@ -642,10 +557,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
             rearrange_elec=0,
             low_density=cfg.DATASET.DENSITY == "LD",
             process_ecog=True,
-            DEBUG=DEBUG,
-            use_denoise=args_.use_denoise,
-            FAKE_LD=args_.FAKE_LD,
-            extend_grid=args_.extend_grid,
         )
 
     for subject in test_subject_info:
@@ -664,10 +575,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
             rearrange_elec=0,
             low_density=cfg.DATASET.DENSITY == "LD",
             process_ecog=True,
-            DEBUG=DEBUG,
-            use_denoise=args_.use_denoise,
-            FAKE_LD=args_.FAKE_LD,
-            extend_grid=args_.extend_grid,
         )
     tracker = LossTracker(cfg.OUTPUT_DIR)
     tracker_test = LossTracker(cfg.OUTPUT_DIR, test=True)
@@ -689,7 +596,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
             max_epoch = (
                 np.array(
                     [
-                        i.split(".")[0].split("_")[1][5:]
+                        i.split('epoch')[1].split('.pth')[0]
                         for i in os.listdir(load_sub_dir)
                         if i.endswith("pth")
                     ]
@@ -697,17 +604,16 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 .astype("int")
                 .max()
             )
-            load_sub_name = [i for i in load_sub_dir.split("_") if "NY" in i][0]
+            load_sub_name = [i for i in load_sub_dir.split("/") if "NY" in i][0]
             print("subject, load_sub_name", subject, load_sub_name)
-            if "a2a" in load_sub_dir:
-                load_sub_dir = load_sub_dir + "/model_epoch{}.pth".format(max_epoch)
-            else:
-                load_sub_dir = load_sub_dir + "/model_epoch{}_{}.pth".format(
-                    max_epoch, load_sub_name
+            load_sub_dir = load_sub_dir + "/{}_a2a_model_epoch{}.pth".format(
+                   load_sub_name, max_epoch  
                 )
             print("pretrained load dir", load_sub_dir)
         else:
-            raise Exception("Please Provide pretrained_model_dir")
+            load_sub_dir = ''
+            print ('No pretrainde a2a model provided!')
+            #raise Exception("Please Provide pretrained_model_dir")
         (
             checkpointer_all[subject],
             model_all[subject],
@@ -727,7 +633,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
             dataset_all=dataset_all,
             subject=subject,
             load_dir=load_sub_dir,
-            single_patient_mapping=single_patient_mapping,
+            single_patient_mapping=single_patient_mapping,param=param
         )
     loadsub = train_subject_info[0]
     ecog_encoder_shared = ecog_encoder_all[loadsub]
@@ -747,12 +653,11 @@ def train(cfg, logger, local_rank, world_size, distributed):
         sample_spec_test_all,
         sample_spec_amp_test_all,
         sample_label_test_all,
-        mni_coordinate_test_all,
         gender_test_all,
         on_stage_test_all,
         on_stage_wider_test_all,
     ) = (
-        {},{},{},{},{},{},{},{},{})
+        {},{},{},{},{},{},{},{})
 
     hann_win = torch.hann_window(21, periodic=False).reshape([1, 1, 21, 1])
     hann_win = hann_win / hann_win.sum()
@@ -763,6 +668,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
             cfg.DATASET.MAX_RESOLUTION_LEVEL, len(dataset_test_all[subject].dataset)
         )
         sample_dict_test = next(iter(dataset_test_all[subject].iterator))
+        gender_test_all[subject] = sample_dict_test['gender_all'].to(device).float()
         if cfg.DATASET.PROD:
             sample_wave_test_all[subject] = (
                 sample_dict_test["wave_re_batch_all"].to(device).float()
@@ -777,22 +683,14 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     .float()
                 )
             sample_label_test_all[subject] = sample_dict_test["label_batch_all"]
-            gender_test_all[subject] = sample_dict_test["gender_all"]
             if cfg.MODEL.ECOG:
-                ecog_test_all[subject] = [
-                    sample_dict_test["ecog_re_batch_all"][i].to(device).float()
-                    for i in range(len(sample_dict_test["ecog_re_batch_all"]))
-                ]
-                mni_coordinate_test_all[subject] = (
-                    sample_dict_test["mni_coordinate_all"].to(device).float()
-                )
+                ecog_test_all[subject] = sample_dict_test["ecog_re_batch_all"].to(device).float()
             on_stage_test_all[subject] = (
                 sample_dict_test["on_stage_re_batch_all"].to(device).float()
             )
             on_stage_wider_test_all[subject] = (
                 sample_dict_test["on_stage_wider_re_batch_all"].to(device).float()
             )
-        ecog_test_all[subject] = torch.cat(ecog_test_all[subject], dim=0)
     duomask = True
     x_amp_from_denoise = False
     n_iter = 0
@@ -803,14 +701,16 @@ def train(cfg, logger, local_rank, world_size, distributed):
         x_orig_all,
         x_orig_amp_all,
         labels_all,
-        mni_coordinate_all,
         gender_train_all,
         on_stage_all,
         on_stage_wider_all
     ) = (
-        {},{},{},{},{},{},{},{},{}
+        {},{},{},{},{},{},{},{}
     )
     for epoch in tqdm(range(cfg.TRAIN.TRAIN_EPOCHS)):
+        
+        
+        #train
         for subject in train_subject_info:
             model_all[subject].train()
         i = 0
@@ -820,10 +720,8 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 dataset_all[train_subject_info[0]].iterator
             )
             sample_dict_train_all = {}
-            for subject in train_subject_info:
-                sample_dict_train_all[subject] = iter(dataset_all[subject].iterator)
-            for iteration in tqdm(
-                len(dataset_all[train_subject_info[0]])
+            for sample_dict_train_all[train_subject_info[0]] in tqdm(
+                dataset_iterator_all[train_subject_info[0]]
             ):
                 n_iter += 1
                 i += 1
@@ -836,7 +734,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
                         x_orig_all,
                         x_orig_amp_all,
                         labels_all,
-                        mni_coordinate_all,
                         gender_train_all,
                         on_stage_all,
                         on_stage_wider_all
@@ -846,18 +743,17 @@ def train(cfg, logger, local_rank, world_size, distributed):
                         x_orig_all,
                         x_orig_amp_all,
                         labels_all,
-                        mni_coordinate_all,
                         gender_train_all,
                         on_stage_all,
                         on_stage_wider_all,
-                        next(sample_dict_train_all[subject]),
+                        sample_dict_train_all[train_subject_info[0]],
                         subject=subject,
                     )
                     initial = None
-
+                    
                     optimizer_all[subject].zero_grad()
                     Lrec, tracker = model_all[subject](
-                        x_all[subject],
+                        x_orig_all[subject],
                         ecog=ecog_all[subject],
                         on_stage=on_stage_all[subject],
                         on_stage_wider=on_stage_all[subject],
@@ -865,7 +761,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
                         tracker=tracker,
                         encoder_guide=cfg.MODEL.W_SUP,
                         duomask=duomask,
-                        mni=mni_coordinate_all[subject],
                         x_amp=x_orig_amp_all[subject],
                         x_amp_from_denoise=x_amp_from_denoise,
                         gender=gender_train_all[subject],
@@ -880,90 +775,76 @@ def train(cfg, logger, local_rank, world_size, distributed):
                         w_classifier=cfg.MODEL.W_CLASSIFIER,
                     )
 
-
-        if local_rank == 0:
-            for subject in test_subject_info:
-                print(
-                    2
-                    ** (
-                        torch.tanh(
-                            model_all[subject].encoder.formant_bandwitdh_slop
-                        )
+        #test
+        for subject in test_subject_info:
+            print(
+                2
+                ** (
+                    torch.tanh(
+                        model_all[subject].encoder.formant_bandwitdh_slop
                     )
                 )
-                print("save test result!")
+            )
+            print("save test result!")
 
-                model_all[subject].eval()
-                Lrec = model_all[subject](
-                    sample_spec_test2_all[subject],
+            model_all[subject].eval()
+            Lrec = model_all[subject](
+                sample_spec_test_all[subject],
+                x_denoise=None,
+                x_mel=None,
+                ecog=ecog_test_all[subject] if cfg.MODEL.ECOG else None,
+                on_stage=on_stage_test_all[subject],
+                ae=not cfg.MODEL.ECOG,
+                tracker=tracker_test,
+                encoder_guide=cfg.MODEL.W_SUP,
+                pitch_aug=False,
+                duomask=duomask,
+                debug=False,
+                x_amp=sample_spec_amp_test_all[subject],
+                hamonic_bias=False,
+                gender=gender_test_all[subject],
+                on_stage_wider=on_stage_test_all[subject],
+            )
+
+            initial = None
+
+            if epoch % 10 == 0:
+                checkpointer_all[subject].save(
+                    "model_epoch{}_{}".format(epoch, subject)
+                )
+                save_sample(
+                    cfg,
                     sample_spec_test_all[subject],
-                    x_denoise=sample_spec_denoise_test_all[subject],
-                    x_mel=sample_spec_mel_test_all[subject],
-                    ecog=ecog_test_all[subject] if cfg.MODEL.ECOG else None,
-                    mask_prior=mask_prior_test_all[subject]
-                    if cfg.MODEL.ECOG
+                    ecog_test_all[subject],
+                    encoder_all[subject],
+                    decoder_all[subject],
+                    ecog_encoder_shared
+                    if hasattr(model_all[subject], "ecog_encoder")
                     else None,
-                    on_stage=on_stage_test_all[subject],
-                    ae=not cfg.MODEL.ECOG,
+                    encoder2
+                    if hasattr(model_all[subject], "encoder2")
+                    else None,
+                    x_denoise=None,
+                    decoder_mel=decoder_mel if cfg.MODEL.DO_MEL_GUIDE else None,
+                    epoch=epoch,
+                    label=sample_label_test_all[subject],
+                    mode="test",
+                    path=cfg.OUTPUT_DIR,
                     tracker=tracker_test,
-                    encoder_guide=cfg.MODEL.W_SUP,
-                    pitch_aug=False,
+                    linear=cfg.MODEL.WAVE_BASED,
+                    n_fft=cfg.MODEL.N_FFT,
                     duomask=duomask,
-                    mni=mni_coordinate_test_all[subject],
-                    debug=False,
                     x_amp=sample_spec_amp_test_all[subject],
-                    hamonic_bias=False,
                     gender=gender_test_all[subject],
-                    voice=sample_voice_test_all[subject],
-                    unvoice=sample_unvoice_test_all[subject],
-                    semivoice=sample_semivoice_test_all[subject],
-                    plosive=sample_plosive_test_all[subject],
-                    fricative=sample_fricative_test_all[subject],
+                    sample_wave=sample_wave_test_all[subject],
+                    sample_wave_denoise=None,
                     on_stage_wider=on_stage_test_all[subject],
+                    auto_regressive=False,
+                    seq_out_start=initial,
+                    suffix=subject,
                 )
 
-                initial = None
-
-                if epoch % 10 == 9:
-                    checkpointer_all[subject].save(
-                        "model_epoch{}_{}".format(epoch, subject)
-                    )
-                    save_sample(
-                        cfg,
-                        sample_spec_test2_all[subject],
-                        sample_spec_test_all[subject],
-                        ecog_test_all[subject],
-                        mask_prior_test_all[subject],
-                        mni_coordinate_test_all[subject],
-                        encoder_all[subject],
-                        decoder_all[subject],
-                        ecog_encoder_shared
-                        if hasattr(model_all[subject], "ecog_encoder")
-                        else None,
-                        encoder2
-                        if hasattr(model_all[subject], "encoder2")
-                        else None,
-                        x_denoise=sample_spec_denoise_test_all[subject],
-                        x_mel=sample_spec_mel_test_all[subject],
-                        decoder_mel=decoder_mel if cfg.MODEL.DO_MEL_GUIDE else None,
-                        epoch=epoch,
-                        label=sample_label_test_all[subject],
-                        mode="test",
-                        path=cfg.OUTPUT_DIR,
-                        tracker=tracker_test,
-                        linear=cfg.MODEL.WAVE_BASED,
-                        n_fft=cfg.MODEL.N_FFT,
-                        duomask=duomask,
-                        x_amp=sample_spec_amp_test_all[subject],
-                        gender=gender_test_all[subject],
-                        sample_wave=sample_wave_test_all[subject],
-                        sample_wave_denoise=sample_wave_denoise_test_all[subject],
-                        on_stage_wider=on_stage_test_all[subject],
-                        auto_regressive=auto_regressive_flag,
-                        seq_out_start=initial,
-                        suffix=subject,
-                    )
-
+        
 
 if __name__ == "__main__":
     gpu_count = torch.cuda.device_count()
@@ -976,7 +857,7 @@ if __name__ == "__main__":
         test_subject_info = args_.testsubject.split(",")
     else:
         test_subject_info = cfg.DATASET.SUBJECT
-    with open("AllSubjectInfo.json", "r") as rfile:
+    with open("configs/AllSubjectInfo.json", "r") as rfile:
         allsubj_param = json.load(rfile)
     subj_param = allsubj_param["Subj"][args_.trainsubject.split(",")[0]]
     Gender = subj_param["Gender"] if cfg.DATASET.PROD else "Female"
@@ -985,10 +866,10 @@ if __name__ == "__main__":
     args_.config_file = config_file
 
     run(
-        train,
-        cfg,
-        description="StyleGAN",
-        default_config=config_file,
-        world_size=gpu_count,
-        args_=args_,
+    train,
+    cfg,
+    description="ECoG to Audio",
+    default_config=config_file,
+    world_size=gpu_count,
+    args_=args_,
     )

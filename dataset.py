@@ -52,11 +52,7 @@ class ECoGDataset(Dataset):
                 else:
                     self.meta_data[k] = [v]
         
-        for k, v in self.meta_data.items():
-            print (k, len(v))
         self.TestNum_cum = np.array([np.sum(train_param["Subj"][subj]['TestNum'] ).astype(np.int32) for subj in ReqSubjDict])
-        print ('self.meta_data[ TestNum_cum s]',  self.TestNum_cum)
-        print (self.meta_data.keys())
         self.dataset_names  = ReqSubjDict
         if train_param == None:
             with open('configs/train_param_production.json','r') as rfile:
@@ -96,9 +92,8 @@ class ECoGDataset(Dataset):
     
         self.ecog_alldataset = self.meta_data['ecog_alldataset']
         #self.label_alldataset = self.meta_data['label_alldataset']
-        self.label_alldataset = np.array([i.decode('utf-8') for i in meta_data['label_alldataset'][:]]).astype('str')
+        self.label_alldataset = [np.array([i.decode('utf-8') for i in meta_data['label_alldataset'][:]]).astype('str')]
 
-        self.word_alldataset = self.meta_data['word_alldataset']
         if self.formant:
             self.formant_re_alldataset = self.meta_data['formant_re_alldataset']
         if self.pitch:
@@ -112,11 +107,7 @@ class ECoGDataset(Dataset):
         self.wave_spec_re_amp_alldataset = self.meta_data['wave_re_spec_amp_alldataset']
         
     def __len__(self):
-        print ('length, self.TestNum_cum', self.TestNum_cum)
-        if self.DEBUG:
-            repeattimes = 1
-        else:
-            repeattimes = 16
+        repeattimes = 128
         if self.mode == 'train':
             return np.array([start_ind_re_alldataset.shape[0]*(repeattimes if 'NY798' in self.ReqSubjDict else repeattimes)//self.world_size for start_ind_re_alldataset in self.meta_data['start_ind_re_valid_alldataset']]).sum()
         else:
@@ -135,7 +126,6 @@ class ECoGDataset(Dataset):
         wave_spec_re_batch_all = []
         wave_spec_re_amp_batch_all = []
         label_batch_all = []
-        word_batch_all = []
         on_stage_re_batch_all = []
         on_stage_wider_re_batch_all = []
         self.SeqLenSpkr = self.SeqLen*int(self.DOWN_TF_FS*1.0/self.DOWN_ECOG_FS)
@@ -146,7 +136,6 @@ class ECoGDataset(Dataset):
             elif self.mode =='test':
                 rand_ind = idx+self.start_ind_re_valid_alldataset[i].shape[0]-self.TestNum_cum[i]
             label = [self.label_alldataset[i][rand_ind]]
-            word = self.word_alldataset[i][rand_ind]
             if self.Prod:
                 start_indx_re = self.start_ind_re_valid_alldataset[i][rand_ind]
                 end_indx_re = self.end_ind_re_valid_alldataset[i][rand_ind]
@@ -198,7 +187,6 @@ class ECoGDataset(Dataset):
                 on_stage_re_batch_all += [on_stage_re_batch]
                 on_stage_wider_re_batch_all += [on_stage_wider_re_batch]
             label_batch_all +=[label]
-            word_batch_all +=[word]
             gender_all +=[np.array([0.],dtype=np.float32) if self.meta_data['gender_alldataset'][i]=='Male' else np.array([1.],dtype=np.float32)]
         ecog_re_batch_all  = np.concatenate(ecog_re_batch_all,axis=0)
         if self.Prod:
@@ -245,7 +233,6 @@ class TFRecordsDataset:
             train_param = param, allsubj_param = allsubj_param, ReshapeAsGrid = ReshapeAsGrid, rearrange_elec = rearrange_elec, low_density = low_density, \
                 process_ecog = process_ecog, formant_label = formant_label, pitch_label = pitch_label, \
                     intensity_label = intensity_label,DEBUG=DEBUG)
-        print (self.dataset.meta_data.keys())
         self.noise_dist = self.dataset.meta_data['noisesample_re_alldataset'][0][:]
         self.cfg = cfg
         self.logger = logger

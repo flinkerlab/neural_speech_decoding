@@ -2008,15 +2008,15 @@ class ECoGMappingBlock_causal(nn.Module):
             x = F.leaky_relu(self.norm1(self.conv1(x)), 0.2)
             x = F.leaky_relu(self.norm2(self.conv2(x)), 0.2)
         return x
-
-formant_freq_limits_diff = torch.tensor([950.,2450.,2100.]).reshape([1,3,1]) #freq difference
-formant_freq_limits_diff_low = torch.tensor([300.,300.,0.]).reshape([1,3,1]) #freq difference
-formant_freq_limits_abs = torch.tensor([950.,3400.,3800.,5000.,6000.,7000.]).reshape([1,6,1]) #freq difference
-formant_freq_limits_abs_low = torch.tensor([300.,700.,1800.,3400,5000.,6000.]).reshape([1,6,1]) #freq difference
-formant_freq_limits_abs_noise = torch.tensor([8000.,7000.,7000.]).reshape([1,3,1]) #freq difference
-formant_freq_limits_abs_noise_low = torch.tensor([4000.,3000.,3000.]).reshape([1,3,1]) #freq difference
-formant_bandwitdh_ratio = Parameter(torch.Tensor(1))
-formant_bandwitdh_slop = Parameter(torch.Tensor(1))
+device = 'cuda' if torch.cuda.is_available() else 'cpu' 
+formant_freq_limits_diff = torch.tensor([950.,2450.,2100.]).reshape([1,3,1]).to(device) #freq difference
+formant_freq_limits_diff_low = torch.tensor([300.,300.,0.]).reshape([1,3,1]).to(device) #freq difference
+formant_freq_limits_abs = torch.tensor([950.,3400.,3800.,5000.,6000.,7000.]).reshape([1,6,1]).to(device) #freq difference
+formant_freq_limits_abs_low = torch.tensor([300.,700.,1800.,3400,5000.,6000.]).reshape([1,6,1]).to(device) #freq difference
+formant_freq_limits_abs_noise = torch.tensor([8000.,7000.,7000.]).reshape([1,3,1]).to(device) #freq difference
+formant_freq_limits_abs_noise_low = torch.tensor([4000.,3000.,3000.]).reshape([1,3,1]).to(device) #freq difference
+formant_bandwitdh_ratio = Parameter(torch.Tensor(1)).to(device)
+formant_bandwitdh_slop = Parameter(torch.Tensor(1)).to(device)
 class Speech_Para_Prediction(nn.Module):
     def __init__(self, causal, anticausal, compute_db_loudness=False, n_formants= 6,n_formants_noise=1,\
                  n_mels=32,network_db=False,input_channel=32):

@@ -1565,6 +1565,7 @@ class FormantEncoder(nn.Module):
             128, n_fft if wavebased else n_mels, 1, 1, 0
         ) 
         self.norm1_bgnoise = nn.GroupNorm(32, 128 if wavebased else n_mels)
+        
         self.norm2_bgnoise = nn.GroupNorm(
             32, n_fft if wavebased else n_mels
         ) 
@@ -2319,11 +2320,9 @@ class ECoGMapping_Bottleneck_ran(nn.Module):
             input_channel=latent_channel,
         )
 
-    def forward(self, ecog, mask_prior, mni, gender="Female"):
+    def forward(self, ecog, ):
         elec_length = int(ecog[0].shape[-1] ** 0.5)
         x = ecog
-        bs_per = x.shape[0]
-        mask_prior = mask_prior
         x = x.reshape([-1, 1, x.shape[1], elec_length, elec_length])
         x = self.from_ecog(x)
         x = self.conv1(x)
@@ -2430,8 +2429,6 @@ class ECoGMappingRNN_ran(torch.nn.Module):
     def forward(
         self,
         inputs,
-        mask_prior,
-        mni,
         gender="Female",
         **kwargs,
     ):
@@ -2611,7 +2608,7 @@ class ECoGMapping_3D_SWIN(nn.Module):
             input_channel=hidden_dim,
         )
 
-    def forward(self, ecog, mask_prior, mni, gender="Female"):
+    def forward(self, ecog):
         elec_length = int(ecog[0].shape[-1] ** 0.5)
         x = ecog[:, 16:]
         x = x.reshape([-1, x.shape[1], elec_length, elec_length, 1])

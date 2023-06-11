@@ -95,8 +95,9 @@ class ECoGDataset(Dataset):
         self.meta_data['gender_alldataset'] = [allsubj_param["Subj"][subj]['Gender'] for subj in ReqSubjDict]
     
         self.ecog_alldataset = self.meta_data['ecog_alldataset']
-        self.bad_samples_alldataset = self.meta_data['bad_samples_alldataset']
-        self.label_alldataset = self.meta_data['label_alldataset']
+        #self.label_alldataset = self.meta_data['label_alldataset']
+        self.label_alldataset = np.array([i.decode('utf-8') for i in meta_data['label_alldataset'][:]]).astype('str')
+
         self.word_alldataset = self.meta_data['word_alldataset']
         if self.formant:
             self.formant_re_alldataset = self.meta_data['formant_re_alldataset']
@@ -125,8 +126,6 @@ class ECoGDataset(Dataset):
         n_delay_1 = -16 
         n_delay_2 = 0
         num_dataset = len(self.ecog_alldataset)
-        mni_coordinate_all = []
-        regions_all =[]
         gender_all = []
         ecog_re_batch_all = []
         formant_re_batch_all = []
@@ -184,7 +183,6 @@ class ECoGDataset(Dataset):
                 wave_spec_batch_re = self.wave_spec_re_alldataset[i][indx_re:indx_re+self.SeqLen]
                 wave_spec_batch_amp_re = self.wave_spec_re_amp_alldataset[i][indx_re:indx_re+self.SeqLen]
             wave_batch_re = self.wave_re_alldataset[i][(indx_re*int(self.DOWN_WAVE_FS*1.0/self.DOWN_ECOG_FS)):((indx_re+self.SeqLen)*int(self.DOWN_WAVE_FS*1.0/self.DOWN_ECOG_FS))]
-            mni_batch = self.meta_data['mni_coordinate_alldateset'][i][:]
             if self.Prod:
                 ecog_re_batch_all += [ecog_batch_re]
                 if self.formant:
@@ -201,9 +199,7 @@ class ECoGDataset(Dataset):
                 on_stage_wider_re_batch_all += [on_stage_wider_re_batch]
             label_batch_all +=[label]
             word_batch_all +=[word]
-            mni_coordinate_all +=[mni_batch.swapaxes(-2,-1)]
             gender_all +=[np.array([0.],dtype=np.float32) if self.meta_data['gender_alldataset'][i]=='Male' else np.array([1.],dtype=np.float32)]
-            regions_all +=[self.meta_data['regions_alldataset'][i]]
         ecog_re_batch_all  = np.concatenate(ecog_re_batch_all,axis=0)
         if self.Prod:
             if self.formant:
@@ -214,13 +210,11 @@ class ECoGDataset(Dataset):
                 intensity_re_batch_all = np.concatenate(intensity_re_batch_all,axis=0)
             if self.wavebased:
                 wave_spec_re_batch_all = np.concatenate(wave_spec_re_batch_all,axis=0)
+                wave_spec_re_amp_batch_all = np.concatenate(wave_spec_re_amp_batch_all,axis=0)
             wave_re_batch_all = np.concatenate(wave_re_batch_all,axis=0)
             on_stage_re_batch_all = np.concatenate(on_stage_re_batch_all,axis=0)
             on_stage_wider_re_batch_all = np.concatenate(on_stage_wider_re_batch_all,axis=0)
         label_batch_all = np.concatenate(label_batch_all,axis=0).tolist()
-        word_batch_all = np.array(word_batch_all)
-        mni_coordinate_all = np.concatenate(mni_coordinate_all,axis=0)
-        regions_all = np.concatenate(regions_all,axis=0).tolist()
         gender_all = np.concatenate(gender_all,axis=0)
         
         return_dict = {'ecog_re_batch_all':ecog_re_batch_all,
@@ -229,9 +223,7 @@ class ECoGDataset(Dataset):
                 'wave_spec_re_amp_batch_all':wave_spec_re_amp_batch_all,
                 'label_batch_all':label_batch_all,
                 'dataset_names':self.dataset_names,
-                'mni_coordinate_all': mni_coordinate_all,
                 'gender_all':gender_all,
-                'word_batch_all':word_batch_all,
                 'on_stage_re_batch_all':on_stage_re_batch_all,
                 'on_stage_wider_re_batch_all':on_stage_wider_re_batch_all,
                 }
@@ -254,7 +246,7 @@ class TFRecordsDataset:
                 process_ecog = process_ecog, formant_label = formant_label, pitch_label = pitch_label, \
                     intensity_label = intensity_label,DEBUG=DEBUG)
         print (self.dataset.meta_data.keys())
-        self.noise_dist = self.dataset.meta_data['noisesample_re_alldataset'][0]
+        self.noise_dist = self.dataset.meta_data['noisesample_re_alldataset'][0][:]
         self.cfg = cfg
         self.logger = logger
         self.rank = rank

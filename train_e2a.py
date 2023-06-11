@@ -102,7 +102,7 @@ parser.add_argument(
 parser.add_argument(
     "--n_fft",
     type=int,
-    default=1,
+    default=512,
     help="deliberately set a wrong default to make sure feed a correct n fft ",
 )
 parser.add_argument(
@@ -153,7 +153,6 @@ parser.add_argument(
     default="",
     help="if None, will use subject info, if specified, the test subjects might be different from subject ",
 )
-parser.add_argument("--HIDDEN_DIM", type=int, default=32, help="HIDDEN_DIM")
 parser.add_argument(
     "--reshape", type=int, default=-1, help="-1 None, 0 no reshape, 1 reshape"
 )
@@ -298,8 +297,6 @@ def load_model_checkpoint(
         noise_db=cfg.MODEL.NOISE_DB,
         max_db=cfg.MODEL.MAX_DB,
         with_ecog=cfg.MODEL.ECOG,
-        hidden_dim=cfg.MODEL.TRANSFORMER.HIDDEN_DIM,
-        dim_feedforward=cfg.MODEL.TRANSFORMER.DIM_FEEDFORWARD,
         encoder_only=cfg.MODEL.TRANSFORMER.ENCODER_ONLY,
         attentional_mask=cfg.MODEL.TRANSFORMER.ATTENTIONAL_MASK,
         n_heads=cfg.MODEL.TRANSFORMER.N_HEADS,
@@ -385,8 +382,6 @@ def load_model_checkpoint(
         noise_db=cfg.MODEL.NOISE_DB,
         max_db=cfg.MODEL.MAX_DB,
         with_ecog=cfg.MODEL.ECOG,
-        hidden_dim=cfg.MODEL.TRANSFORMER.HIDDEN_DIM,
-        dim_feedforward=cfg.MODEL.TRANSFORMER.DIM_FEEDFORWARD,
         encoder_only=cfg.MODEL.TRANSFORMER.ENCODER_ONLY,
         attentional_mask=cfg.MODEL.TRANSFORMER.ATTENTIONAL_MASK,
         n_heads=cfg.MODEL.TRANSFORMER.N_HEADS,
@@ -825,14 +820,16 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 dataset_all[train_subject_info[0]].iterator
             )
             sample_dict_train_all = {}
-            for sample_dict_train_all[train_subject_info[0]] in tqdm(
-                iter(dataset_all[train_subject_info[0]].iterator)
+            for subject in train_subject_info:
+                sample_dict_train_all[subject] = iter(dataset_all[subject].iterator)
+            for iteration in tqdm(
+                len(dataset_all[train_subject_info[0]])
             ):
                 n_iter += 1
                 i += 1
                 for subject in train_subject_info:
                     if n_iter % 200 == 0:
-                            print(tracker.register_means(n_iter))
+                        print(tracker.register_means(n_iter))
                     (
                         ecog_all,
                         wave_orig_all,
@@ -853,7 +850,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
                         gender_train_all,
                         on_stage_all,
                         on_stage_wider_all,
-                        next(iter(dataset_all[subject].iterator)),
+                        next(sample_dict_train_all[subject]),
                         subject=subject,
                     )
                     initial = None
@@ -883,114 +880,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
                         w_classifier=cfg.MODEL.W_CLASSIFIER,
                     )
 
-        else:
-            subject_for_iter = train_subject_info[0]
-            subject_remain = np.setdiff1d(train_subject_info, subject_for_iter)
-            for sub_remain in subject_remain:
-                dataset_iterator_all[sub_remain] = iter(
-                    dataset_all[sub_remain].iterator
-                )
-            sample_dict_train_all = {}
-            for sample_dict_train_all[subject_for_iter] in iter(
-                dataset_all[subject_for_iter].iterator
-            ):
-                n_iter += 1
-                i += 1
-                try:
-                    for sub_remain in subject_remain:
-                        sample_dict_train_all[sub_remain] = next(
-                            dataset_iterator_all[sub_remain]
-                        )
-                except StopIteration:
-                    for sub_remain in subject_remain:
-                        dataset_iterator_all[sub_remain] = iter(
-                            dataset_all[sub_remain].iterator
-                        )
-                        sample_dict_train_all[sub_remain] = next(
-                            dataset_iterator_all[sub_remain]
-                        )
-
-                for subject in train_subject_info:
-                    (
-                        wave_orig_all,
-                        sample_voice_all,
-                        sample_unvoice_all,
-                        sample_semivoice_all,
-                        sample_plosive_all,
-                        sample_fricative_all,
-                        x_orig_all,
-                        x_orig_amp_all,
-                        x_orig_denoise_all,
-                        x_orig2_all,
-                        on_stage_all,
-                        on_stage_wider_all,
-                        words_all,
-                        labels_all,
-                        gender_train_all,
-                        ecog_all,
-                        mask_prior_all,
-                        mni_coordinate_all,
-                        x_mel_all,
-                        x_all,
-                    ) = get_train_data(
-                        wave_orig_all,
-                        sample_voice_all,
-                        sample_unvoice_all,
-                        sample_semivoice_all,
-                        sample_plosive_all,
-                        sample_fricative_all,
-                        x_orig_all,
-                        x_orig_amp_all,
-                        x_orig_denoise_all,
-                        x_orig2_all,
-                        on_stage_all,
-                        on_stage_wider_all,
-                        words_all,
-                        labels_all,
-                        gender_train_all,
-                        ecog_all,
-                        mask_prior_all,
-                        mni_coordinate_all,
-                        x_mel_all,
-                        x_all,
-                        next(iter(dataset_all[subject].iterator)),
-                        subject=subject,
-                    )
-
-                    optimizer_all[subject].zero_grad()
-                    Lrec, tracker = model_all[subject](
-                        x_orig2_all[subject],
-                        x_all[subject],
-                        x_denoise=x_orig_denoise_all[subject],
-                        x_mel=x_mel_all[subject],
-                        ecog=ecog_all[subject],
-                        mask_prior=mask_prior_all[subject],
-                        on_stage=on_stage_all[subject],
-                        on_stage_wider=on_stage_all[subject],
-                        ae=False,
-                        tracker=tracker,
-                        encoder_guide=cfg.MODEL.W_SUP,
-                        duomask=duomask,
-                        mni=mni_coordinate_all[subject],
-                        x_amp=x_orig_amp_all[subject],
-                        x_amp_from_denoise=x_amp_from_denoise,
-                        gender=gender_train_all[subject],
-                        voice=sample_voice_all[subject],
-                        unvoice=sample_unvoice_all[subject],
-                        semivoice=sample_semivoice_all[subject],
-                        plosive=sample_plosive_all[subject],
-                        fricative=sample_fricative_all[subject],
-                    )
-
-                    (Lrec).backward()
-                    optimizer_all[subject].step()
-
-                    betta = 0.5 ** (cfg.TRAIN.BATCH_SIZE / (10 * 1000.0))
-                    model_s_all[subject].lerp(
-                        model_all[subject],
-                        betta,
-                        w_classifier=cfg.MODEL.W_CLASSIFIER,
-                    )
 
         if local_rank == 0:
             for subject in test_subject_info:

@@ -153,8 +153,6 @@ def voicing_coloring(sample, amplitude):
 
 def color_spec(spec, components, n_mels):
     clrs = ["g", "y", "b", "m", "c"]
-    # sample_in = spec.repeat(1,3,1,1)
-    # sample_in = sample_in * 0.5 + 0.5
     f0 = (components["f0"] * n_mels).int().clamp(min=0, max=n_mels - 1)
     formants_freqs = (
         (components["freq_formants_hamon"] * n_mels).int().clamp(min=0, max=n_mels - 1)
@@ -476,11 +474,8 @@ def subfigure_plot(
 
 def save_sample(
     cfg,
-    sample2,
     sample,
     ecog,
-    mask_prior,
-    mni,
     encoder,
     decoder,
     ecog_encoder,
@@ -489,9 +484,8 @@ def save_sample(
     label,
     x_denoise=None,
     decoder_mel=None,
-    x_mel=None,
     mode="test",
-    path="training_artifacts/formantsysth_voicingandunvoicing_loudness",
+    path="",
     tracker=None,
     linear=False,
     n_fft=256,
@@ -525,16 +519,11 @@ def save_sample(
         if encoder2 is not None:
             encoder2.eval()
         sample_in_all = torch.tensor([])
-        sample_in_color_freq_all = torch.tensor([])
-        sample_in_color_voicing_all = torch.tensor([])
         rec_all = torch.tensor([])
         rec_denoise_all = torch.tensor([])
-        rec_denoise_wave_all = torch.tensor([])
         components_all = []
 
         if ecog_encoder is not None or encoder2 is not None:
-            sample_in_color_freq_ecog_all = torch.tensor([])
-            sample_in_color_voicing_ecog_all = torch.tensor([])
             rec_ecog_all = torch.tensor([])
             rec_denoise_ecog_all = torch.tensor([])
             rec_denoise_ecog_wave_all = torch.tensor([])
@@ -579,8 +568,6 @@ def save_sample(
         # import pdb; pdb.set_trace()
         for i in range(0, sample.shape[0], 1):
             sample_in = sample[i : np.minimum(i + 1, sample.shape[0])]
-            if cfg.VISUAL.A2A:
-                sample_in2 = sample2[i : np.minimum(i + 1, sample.shape[0])]
             sample_in_denoise = (
                 x_denoise[i : np.minimum(i + 1, sample.shape[0])]
                 if x_denoise is not None
@@ -593,12 +580,7 @@ def save_sample(
             )
             on_stage_in = on_stage_wider[i : np.minimum(i + 1, sample.shape[0])]
             if ecog_encoder is not None:
-                # ecog_in = [ecog[j][i:np.minimum(i+1,sample.shape[0])] for j in range(len(ecog))]
-                # mask_prior_in = [mask_prior[j][i:np.minimum(i+1,sample.shape[0])] for j in range(len(ecog))]
-                # 2021.7.6: use tensor instead of list for multi patient training!
                 ecog_in = ecog[i : np.minimum(i + 1, sample.shape[0])]
-                mask_prior_in = None  # mask_prior [i:np.minimum(i+1,sample.shape[0])]
-                mni_in = None  # mni[i:np.minimum(i+1,sample.shape[0])]
             gender_in = gender[i : np.minimum(i + 1, sample.shape[0])]
             components = encoder(
                 sample_in,
@@ -610,7 +592,6 @@ def save_sample(
                 onstage=on_stage_wider[i : np.minimum(i + 1, sample.shape[0])],
             )
             rec = decoder(components, onstage=on_stage_in)
-            # import pdb; pdb.set_trace()
             decoder.return_wave = True
             rec_denoise, rec_denoise_wave = decoder(
                 components, enable_bgnoise=False, onstage=on_stage_in
@@ -630,13 +611,10 @@ def save_sample(
             sample_in_all = torch.cat(
                 [sample_in_all.to(device), sample_in_.to(device)], dim=0
             )
-            # sample_in_color_freq_all = torch.cat([sample_in_color_freq_all,sample_in_color_freq],dim=0)
-            # sample_in_color_voicing_all = torch.cat([sample_in_color_voicing_all,sample_in_color_voicing],dim=0)
             rec_all = torch.cat([rec_all.to(device), rec.to(device)], dim=0)
             rec_denoise_all = torch.cat(
                 [rec_denoise_all.to(device), rec_denoise.to(device)], dim=0
             )
-            # rec_denoise_wave_all = torch.cat([rec_denoise_wave_all.to(device),rec_denoise_wave.to(device)],dim=0)
             components_all += [components]
             if ecog_encoder is not None or encoder2 is not None:
                 if cfg.VISUAL.A2A:
@@ -653,30 +631,25 @@ def save_sample(
                     if auto_regressive:
                         components_ecog = ecog_encoder.generate(
                             ecog_in,
-                            mask_prior_in,
-                            mni=mni_in,
                             seq_out_start=seq_out_start,
                             seq_len=128,
                         )  # ,gender=gender_in)
                     else:
                         if (
                             sample.shape[0] > 50
-                        ):  # for perception multi, mapping layer case, select sample's specific layer
+                        ):  
                             print(
                                 "percept multi mapping, {} th sample, {} th layer".format(
                                     i, i // 50
                                 ),
                             )
                             components_ecog = ecog_encoder(
-                                ecog_in,
-                                mask_prior_in,
-                                mni=mni_in,
-                                single_patient_mapping=i // 50,
+                                ecog_in
                             )
                         else:
                             components_ecog = ecog_encoder(
-                                ecog_in, mask_prior_in, mni=mni_in
-                            )  # ,gender=gender_in)
+                                ecog_in
+                            )
                 rec_ecog = decoder(components_ecog, onstage=on_stage_wider)
                 rec_ecog = rec_ecog.repeat(1, 3, 1, 1)
                 rec_ecog = rec_ecog * 0.5 + 0.5
@@ -1113,7 +1086,6 @@ def save_sample(
                 save_dict["rec_ecog_denoise"] = rec_denoise_ecog_all
         if mode == "test":
             save_dict["wave_org"] = sample_wave.detach().cpu().numpy()
-            save_dict["wave_org_denoise"] = sample_wave_denoise.detach().cpu().numpy()
             save_dict["wave_rec"] = rec_wave
             save_dict["wave_rec_denoise"] = rec_wave_denoise
             if ecog_encoder is not None or encoder2 is not None:
@@ -1123,7 +1095,6 @@ def save_sample(
                 np.save(f2 + "_sample_npy_%d" % (epoch + 1), save_dict)
             except:
                 pass
-        # import pdb;pdb.set_trace()
 
         return
 

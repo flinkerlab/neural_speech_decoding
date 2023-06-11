@@ -322,7 +322,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
         with_ecog=cfg.MODEL.ECOG,
         with_encoder2=cfg.VISUAL.A2A,
         hidden_dim=cfg.MODEL.TRANSFORMER.HIDDEN_DIM,
-        dim_feedforward=cfg.MODEL.TRANSFORMER.DIM_FEEDFORWARD,
         encoder_only=cfg.MODEL.TRANSFORMER.ENCODER_ONLY,
         attentional_mask=cfg.MODEL.TRANSFORMER.ATTENTIONAL_MASK,
         n_heads=cfg.MODEL.TRANSFORMER.N_HEADS,

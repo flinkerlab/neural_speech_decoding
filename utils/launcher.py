@@ -59,14 +59,10 @@ def _run(rank, world_size, fn, defaults, write_log, no_cuda, args_):
     cfg.TRAIN.LOD_2_BATCH_4GPU = [bs//len(cfg.DATASET.SUBJECT) for bs in cfg.TRAIN.LOD_2_BATCH_4GPU]
     cfg.TRAIN.LOD_2_BATCH_8GPU = [bs//len(cfg.DATASET.SUBJECT) for bs in cfg.TRAIN.LOD_2_BATCH_8GPU]
     cfg.TRAIN.TRAIN_EPOCHS = args_.epoch_num
-    cfg.MODEL.ONEDCONFIRST  = True
-    cfg.MODEL.RNN_TYPE  = args_.RNN_TYPE
-    cfg.MODEL.RNN_LAYERS  = args_.RNN_LAYERS
     cfg.MODEL.RNN_COMPUTE_DB_LOUDNESS  = True if args_.RNN_COMPUTE_DB_LOUDNESS==1 else False
     cfg.MODEL.BIDIRECTION  = True if args_.BIDIRECTION==1 else False
-    cfg.OUTPUT_DIR = args_.OUTPUT_DIR #+'_{}_{}_bi_{}_1dconv_{}'.format(args_.RNN_TYPE,args_.RNN_LAYERS,str(cfg.MODEL.BIDIRECTION),str(cfg.MODEL.ONEDCONFIRST))
+    cfg.OUTPUT_DIR = args_.OUTPUT_DIR
     cfg.MODEL.MAPPING_FROM_ECOG = args_.MAPPING_FROM_ECOG
-    cfg.MODEL.TRANSFORMER.HIDDEN_DIM = args_.HIDDEN_DIM
     cfg.MODEL.EXPERIMENT_KEY = args_.COMPONENTKEY if args_.COMPONENTKEY!='' else 0
     cfg.MODEL.TRANSFORMER.FASTATTENTYPE = 'full'
     cfg.MODEL.PHONEMEWEIGHT = 0
@@ -84,8 +80,8 @@ def _run(rank, world_size, fn, defaults, write_log, no_cuda, args_):
     cfg.MODEL.region_index = 0
     cfg.MODEL.multiscale= 0
     cfg.MODEL.rdropout= 0
-    cfg.MODEL.LEARNED_MASK = args_.learnedmask
-    cfg.MODEL.DYNAMIC_FILTER_SHAPE = args_.dynamicfiltershape
+    cfg.MODEL.LEARNED_MASK = bool(args_.learnedmask)
+    cfg.MODEL.DYNAMIC_FILTER_SHAPE = bool(args_.dynamicfiltershape)
     cfg.IGNORE_LOADING= args_.ignore_loading
     cfg.FINETUNE.FINETUNE= args_.finetune
     cfg.MODEL.single_patient_mapping = -1

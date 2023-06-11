@@ -16,7 +16,7 @@
 import os
 from torch import nn
 import torch
-import utils
+from utils import util
 
 
 def get_model_dict(x):
@@ -57,7 +57,7 @@ class Checkpointer(object):
                 data["auxiliary"][name] = item.state_dict()
         data.update(kwargs)
 
-        @utils.async_func
+        @util.async_func
         def save_data():
             save_file = os.path.join(self.cfg.OUTPUT_DIR, "%s.pth" % _name)
             self.logger.info("Saving checkpoint to %s" % save_file)

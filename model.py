@@ -352,13 +352,7 @@ def MTF_pytorch(S):
     ]
     F_horizontal = F_tmp[:, :, :, -10:] * 2
     F_vertical = F_tmp[:, :, F_tmp.shape[2] // 2 - 5 : F_tmp.shape[2] // 2 + 5] * 2
-    print("F", F.shape, F_tmp.shape, F_horizontal.shape, F_vertical.shape)
-    # print (F_tmp ,  F_horizontal ,  F_vertical)
     return F_tmp, F_horizontal, F_vertical
-
-
-# cuda 11, cudnn 8 torch 1.7 does not have fftshift
-
 
 class Model(nn.Module):
     def __init__(
@@ -378,7 +372,6 @@ class Model(nn.Module):
         with_encoder2=False,
         ghm_loss=True,
         power_synth=True,
-        ecog_compute_db_loudness=False,
         apply_flooding=False,
         normed_mask=False,
         dummy_formant=False,
@@ -386,12 +379,6 @@ class Model(nn.Module):
         key=None,
         index=None,
         A2A=False,
-        hidden_dim=256,
-        dim_feedforward=256,
-        encoder_only=True,
-        attentional_mask=False,
-        n_heads=1,
-        non_local=False,
         do_mel_guide=True,
         noise_from_data=False,
         specsup=True,
@@ -399,14 +386,6 @@ class Model(nn.Module):
         anticausal=False,
         pre_articulate=False,
         alpha_sup=False,
-        onedconfirst=True,
-        rnn_type="LSTM",
-        rnn_layers=4,
-        compute_db_loudness=True,
-        bidirection=True,
-        experiment_key=0,
-        attention_type="full",
-        phoneme_weight=1,
         ld_loss_weight=True,
         alpha_loss_weight=True,
         consonant_loss_weight=True,
@@ -425,20 +404,11 @@ class Model(nn.Module):
         cumsum=False,
         learned_mask=False,
         n_filter_samples=40,
-        dynamic_bgnoise=False,
         dynamic_filter_shape=False,
         learnedbandwidth=False,
         auto_regressive=False,
-        classic_pe=False,
-        temporal_down_before=False,
-        conv_method="both",
-        classic_attention=1,
         patient="NY742",
-        mapping_layers=0,
-        single_patient_mapping=0,
-        region_index=0,
         batch_size=8,
-        multiscale=False,
         rdropout=0,
         tmpsavepath="",
         return_filtershape=False,
@@ -447,10 +417,6 @@ class Model(nn.Module):
         reverse_order=True,
         larger_capacity=False,
         unified=False,
-        n_layers=3,
-        n_rnn_units=256,
-        dropout=0.5,
-        n_classes=128,
         use_stoi=False,
     ):
         super(Model, self).__init__()
@@ -578,108 +544,13 @@ class Model(nn.Module):
                 power_synth=power_synth,
             )
         if with_ecog and not A2A:
-            if "Transformer" in ecog_encoder_name:
-                self.ecog_encoder = ECOG_ENCODER[ecog_encoder_name](
+            self.ecog_encoder = ECOG_ENCODER[ecog_encoder_name](
                     n_mels=spec_chans,
                     n_formants=n_formants_ecog,
-                    mapping_layers=mapping_layers,
-                    single_patient_mapping=single_patient_mapping,
-                    hidden_dim=hidden_dim,
-                    dim_feedforward=dim_feedforward,
-                    n_heads=n_heads,
-                    encoder_only=encoder_only,
-                    attentional_mask=attentional_mask,
-                    non_local=non_local,
-                    compute_db_loudness=ecog_compute_db_loudness,
-                    causal=causal,
-                    rnn_layers=rnn_layers,
-                )
-            elif "EncDec" in ecog_encoder_name:
-                self.auto_regressive = True
-                self.ecog_encoder = ECOG_ENCODER[ecog_encoder_name](
-                    n_mels=spec_chans,
-                    n_formants=n_formants_ecog,
-                    ndim=hidden_dim,
-                    hidden_dim=hidden_dim,
-                    dim_feedforward=dim_feedforward,
-                    n_heads=n_heads,
-                    encoder_only=encoder_only,
-                    attentional_mask=attentional_mask,
-                    non_local=non_local,
-                    compute_db_loudness=ecog_compute_db_loudness,
-                    causal=causal,
-                    enc_causal=causal,
-                    enc_anticausal=anticausal,
-                    dec_heads=n_heads,
-                    dec_depth=1,
-                    mapping_layers=mapping_layers,
-                    single_patient_mapping=single_patient_mapping,
-                    dec_max_seq_len=128,
-                    rnn_layers=rnn_layers,
-                )
-            elif "conformer_enc_dec_3D_downsample" in ecog_encoder_name:
-                self.ecog_encoder = ECOG_ENCODER[ecog_encoder_name](
-                    n_mels=spec_chans,
-                    n_formants=n_formants_ecog,
-                    hidden_dim=hidden_dim,
                     network_db=network_db,
-                    mapping_layers=mapping_layers,
-                    single_patient_mapping=single_patient_mapping,
-                    compute_db_loudness=ecog_compute_db_loudness,
                     causal=causal,
                     anticausal=anticausal,
                     pre_articulate=pre_articulate,
-                    classic_pe=classic_pe,
-                    temporal_down_before=temporal_down_before,
-                    conv_method=conv_method,
-                    classic_attention=classic_attention,
-                    rnn_layers=rnn_layers,
-                )
-            elif (
-                "ECoGMappingRNN_ran" in ecog_encoder_name
-                or "ECoGMapping_performer_ran" in ecog_encoder_name
-                or "ConvLSTM" in ecog_encoder_name
-            ):
-                print(
-                    "LSTM_layer_{}_hidden_{}_dropout_{}_common_{}".format(
-                        n_layers, n_rnn_units, dropout, n_classes
-                    )
-                )
-                self.ecog_encoder = ECOG_ENCODER[ecog_encoder_name](
-                    n_mels=spec_chans,
-                    n_formants=n_formants_ecog,
-                    hidden_dim=hidden_dim,
-                    network_db=network_db,
-                    mapping_layers=mapping_layers,
-                    region_index=region_index,
-                    single_patient_mapping=single_patient_mapping,
-                    batch_size=batch_size,
-                    multiscale=multiscale,
-                    compute_db_loudness=ecog_compute_db_loudness,
-                    causal=causal,
-                    anticausal=anticausal,
-                    pre_articulate=pre_articulate,
-                    n_layers=n_layers,
-                    n_rnn_units=n_rnn_units,
-                    dropout=dropout,
-                    n_classes=n_classes,
-                )
-            else:
-                self.ecog_encoder = ECOG_ENCODER[ecog_encoder_name](
-                    n_mels=spec_chans,
-                    n_formants=n_formants_ecog,
-                    hidden_dim=hidden_dim,
-                    network_db=network_db,
-                    mapping_layers=mapping_layers,
-                    region_index=region_index,
-                    single_patient_mapping=single_patient_mapping,
-                    batch_size=batch_size,
-                    multiscale=multiscale,
-                    compute_db_loudness=ecog_compute_db_loudness,
-                    causal=causal,
-                    anticausal=anticausal,
-                    pre_articulate=pre_articulate,
-                    rnn_layers=rnn_layers,
                 )
         self.ghm_loss = ghm_loss
         self.lae1 = LAE(noise_db=self.noise_db, max_db=self.max_db)
@@ -700,8 +571,6 @@ class Model(nn.Module):
     def generate_fromecog(
         self,
         ecog=None,
-        mask_prior=None,
-        mni=None,
         return_components=False,
         gt_comp=None,
         gt_spec=None,
@@ -714,8 +583,6 @@ class Model(nn.Module):
             # print ('gt_comp first come in function',gt_comp['f0_hz'].shape)
             components = self.ecog_encoder(
                 ecog,
-                mask_prior,
-                mni,
                 gt_comp,
                 dec_return_also_encodings=return_also_encodings,
                 gender=gender,
@@ -727,11 +594,8 @@ class Model(nn.Module):
             target_spec = gt_spec[:, :, 1:]
         else:
             # print ('not use auto regressive')
-            components = self.ecog_encoder(ecog, mask_prior, mni, gender=gender)
-        # print ('rec = self.decoder.forward ', components.keys(),components['amplitudes'].unsqueeze(dim=-1).shape)
-        # print ('components shape within function,target_comp,components', target_comp['f0_hz'].shape, components['f0_hz'].shape)
+            components = self.ecog_encoder(ecog)
         rec = self.decoder.forward(components, onstage)
-        # print ('rec, gt_spec, target_spec within function',rec.shape, gt_spec.shape, target_spec.shape)
         if return_components:
             if self.auto_regressive:
                 return rec, components, target_spec, target_comp
@@ -834,11 +698,8 @@ class Model(nn.Module):
                 + (F_horizontal - F_horizontal_rec).abs().mean()
                 + (F_vertical - F_vertical_rec).abs().mean()
             )
-            # print ('Lae_mtf',Lae_mtf)#, MTF_pytorch(spec), MTF_pytorch(rec))
-            # Lae_mtf_l2 = torch.sqrt((MTF_pytorch(spec)-MTF_pytorch(rec))**2+1E-6).mean()
         else:
             Lae_mtf = torch.tensor(0.0)
-            # Lae_mtf_l2 = torch.tensor(0.)
 
         if self.delta_time:
             loss_delta_time = (
@@ -885,14 +746,6 @@ class Model(nn.Module):
             return (loss - beta).abs() + beta
         else:
             return loss
-
-    # start from here, abstract to a func `run_components_loss` for R drop purpose(need to run twice)
-    # rec, spec, tracker, encoder_guide, components_ecog, components_guide
-
-    # run twice to get: components_ecog1, components_ecog2
-    # run_components_loss(components_ecog1, components_ecog2) * self.rdrop_weight
-    # run_components_loss(components_ecog1, components_guide) + run_components_loss(components_ecog1, components_guide) for Lrec
-    # then sum up and return!
     def run_components_loss(
         self,
         rec,
@@ -915,14 +768,9 @@ class Model(nn.Module):
                 )  # torch.mean((rec - spec)**2)
         else:
             Lrec = torch.tensor([0.0])  #
-        # Lrec = torch.mean((rec - spec).abs())
-
-        # S = librosa.stft(wave,n_fft=n_fft)#,hop_length=hop_length) #16000 * 0.01
 
         spec_amp = amplitude(spec, self.noise_db, self.max_db).transpose(-2, -1)
         rec_amp = amplitude(rec, self.noise_db, self.max_db).transpose(-2, -1)
-        # freq_cord2 = torch.arange(128+1).reshape([1,1,1,128+1])/(1.0*128)
-        # freq_linear_reweighting2 = (inverse_mel_scale(freq_cord2[...,1:])-inverse_mel_scale(freq_cord2[...,:-1]))/440*7
         spec_mel = to_db(
             torchaudio.transforms.MelScale(f_max=8000, n_stft=self.n_fft)(
                 spec_amp
@@ -937,31 +785,28 @@ class Model(nn.Module):
             self.noise_db,
             self.max_db,
         )
-        # print ('spec_mel.shape, rec_mel.shape,freq_linear_reweighting2.shape',spec_mel.shape, rec_mel.shape,freq_linear_reweighting2.shape)
         Lrec += 80 * self.lae(rec_mel, spec_mel, tracker=tracker, amp=False, suffix="2")
         if self.use_stoi:
-            # print ('use stoi loss! female of male?')
-            # import pdb; pdb.set_trace()
             if spec_amp.shape[-2] == 256:
                 stoi_loss = (
                     self.stoi_loss_female(
                         rec_amp, spec_amp, on_stage, suffix="stoi", tracker=tracker
                     )
                     * 10
-                )  # for 26 27#* 100 for 16 19 21 22 #800 for 1014
+                )
             else:
                 stoi_loss = (
                     self.stoi_loss_male(
                         rec_amp, spec_amp, on_stage, suffix="stoi", tracker=tracker
                     )
                     * 10
-                )  # * 100#800 for 1014
+                )
             Lrec += stoi_loss
         tracker.update(dict(Lrec=Lrec))
         Lcomp = 0
         if encoder_guide:
             consonant_weight = (
-                1  # 100*(torch.sign(components_guide['amplitudes'][:,1:]-0.5)*0.5+0.5)
+                1 
             )
             if self.power_synth:
                 loudness_db = torchaudio.transforms.AmplitudeToDB()(
@@ -1164,8 +1009,6 @@ class Model(nn.Module):
                     )
 
                 if key == "f0_hz":
-                    # diff = torch.mean((components_guide[key]*6 - components_ecog[key]*6)**2 * on_stage_wider * components_guide['loudness']/4)
-
                     if self.f0_midi:
                         difftmp = (
                             hz_to_midi(components_guide[key]) / 4
@@ -1209,7 +1052,7 @@ class Model(nn.Module):
                             alpha["amplitudes"]
                             * 540
                             * self.lae3(tmp_target, tmp_ecog, reweight=weight)
-                        )  # 0519 increase alpha weight
+                        )
                     else:
                         diff = (
                             alpha["amplitudes"]
@@ -1598,13 +1441,8 @@ class Model(nn.Module):
                 Lcomp += diff
 
             if "formant_ratio" in components_ecog.keys():
-                # formants_freqs*(self.formant_freq_limits_abs[:,:self.n_formants]-self.formant_freq_limits_abs_low[:,:self.n_formants])+self.formant_freq_limits_abs_low[:,:self.n_formants]
-                # formant ratio is log(f2^'/f1^')
-                # to get f2^' = f2-low/(high - low)
                 print("loss add formant ratio!")
                 weight = on_stage_wider * loudness_db_norm_weight
-
-                # get weight factor
                 formants_freqs_ratio_guide = (
                     components_guide["freq_formants_hamon_hz"][
                         :, : self.n_formants_ecog
@@ -1637,14 +1475,8 @@ class Model(nn.Module):
                 diff = self.flooding(
                     diff, alpha["formants_ratio"] * betas["formants_ratio"]
                 )
-
-                # tracker.update({'freq_formants_hamon_hz_metric_2' : torch.mean((components_guide['freq_formants_hamon_hz'][:,:2]/400 - components_ecog['freq_formants_hamon_hz'][:,:2]/400)**2 * weight)})
                 tracker.update({"formant_ratio_" + str(self.n_formants_ecog): tmp_diff})
             if "formant_ratio2" in components_ecog.keys():
-                # formants_freqs*(self.formant_freq_limits_abs[:,:self.n_formants]-self.formant_freq_limits_abs_low[:,:self.n_formants])+self.formant_freq_limits_abs_low[:,:self.n_formants]
-                # formant ratio is  f1^'/f2^'
-                # to get f2^' = f2-low/(high - low)
-                # print ('loss add formant ratio2!')
                 weight = on_stage_wider * loudness_db_norm_weight
 
                 # get weight factor
@@ -1677,8 +1509,6 @@ class Model(nn.Module):
                 diff = self.flooding(
                     diff, alpha["formants_ratio"] * betas["formants_ratio"]
                 )
-
-                # tracker.update({'freq_formants_hamon_hz_metric_2' : torch.mean((components_guide['freq_formants_hamon_hz'][:,:2]/400 - components_ecog['freq_formants_hamon_hz'][:,:2]/400)**2 * weight)})
                 tracker.update(
                     {"formant_ratio2_" + str(self.n_formants_ecog): tmp_diff}
                 )
@@ -1758,7 +1588,7 @@ class Model(nn.Module):
                 * explosive
             )
             * 10
-        )  # change from 100 to 10, previous is too high!!
+        )
         tracker.update(dict(Lexp=Lexp))
         Loss += Lexp
 
@@ -1769,17 +1599,12 @@ class Model(nn.Module):
             )
         )
         Loss += Lfreqorder
-        # print ('tracker, Loss, stoi_loss', tracker, Loss, stoi_loss)
         return Loss, tracker
-        # 2021 for R dropout, could we just use Loss for MSE regularization? is it equivalent?
-        # it's better to pass through the above exercise twice and get x1 and x2. calculate x1 - x2 as regularization, and (x1 + x2) / 2 as output
 
     def forward(
         self,
-        spec2,
         spec,
         ecog,
-        mask_prior,
         on_stage,
         on_stage_wider,
         gt_comp=None,
@@ -1790,7 +1615,6 @@ class Model(nn.Module):
         x_denoise=None,
         pitch_aug=False,
         duomask=False,
-        mni=None,
         debug=False,
         x_amp=None,
         hamonic_bias=False,
@@ -1827,13 +1651,6 @@ class Model(nn.Module):
                 rec = self.decoder.forward(
                     components, on_stage, n_iter=n_iter, save_path=save_path
                 )
-                # print ('on_stage',on_stage.shape)
-                # print ('rec shape',rec.shape)
-                # if self.return_filtershape:
-                #    return self.decoder.forward(components,on_stage)
-                freq_cord = torch.arange(self.spec_chans).reshape(
-                    [1, 1, 1, self.spec_chans]
-                ) / (1.0 * self.spec_chans)
                 freq_cord2 = torch.arange(self.spec_chans + 1).reshape(
                     [1, 1, 1, self.spec_chans + 1]
                 ) / (1.0 * self.spec_chans)
@@ -1852,7 +1669,7 @@ class Model(nn.Module):
                     spec * freq_linear_reweighting,
                     tracker=tracker,
                     suffix="1",
-                )  # torch.mean((rec - spec).abs()*freq_linear_reweighting)
+                )
                 if self.wavebased:
                     spec_amp = amplitude(spec, self.noise_db, self.max_db).transpose(
                         -2, -1
@@ -1860,11 +1677,7 @@ class Model(nn.Module):
                     rec_amp = amplitude(rec, self.noise_db, self.max_db).transpose(
                         -2, -1
                     )
-                    # print ('spec_amp', spec_amp.shape)
-                    # here we introduce stoi+ loss, it is already amplitude and permuted!
                     if self.use_stoi:
-                        # print ('use stoi loss! female of male?')
-                        # import pdb; pdb.set_trace()
                         if spec_amp.shape[-2] == 256:
                             stoi_loss = (
                                 self.stoi_loss_female(
@@ -1914,8 +1727,6 @@ class Model(nn.Module):
                         self.noise_db,
                         self.max_db,
                     )
-                    # print ('spec_mel.shape, rec_mel.shape,freq_linear_reweighting2.shape',spec_mel.shape, rec_mel.shape,freq_linear_reweighting2.shape)
-
                     Lae += 8 * self.lae(
                         rec_mel * freq_linear_reweighting2,
                         spec_mel * freq_linear_reweighting2,
@@ -2007,8 +1818,6 @@ class Model(nn.Module):
                         if len(Lfricativeband) != 0
                         else torch.tensor(0.0)
                     )
-                    # Lfricative = 2*(F.relu(5000./4000-components['freq_formants_noise_hz'][:,-2:-1][fricative==1]/4000)**2)
-                    # Lfricative = Lfricative.mean() if len(Lfricative)!=0 else 0.
                     Lfricative = torch.tensor(0.0)
 
                     Lae += (
@@ -2536,8 +2345,6 @@ class Model(nn.Module):
                             components_guide,
                         ) = self.generate_fromecog(
                             ecog,
-                            mask_prior,
-                            mni=mni,
                             return_components=True,
                             gt_comp=components_guide,
                             gt_spec=spec,
@@ -2555,8 +2362,6 @@ class Model(nn.Module):
                     else:
                         rec, components_ecog = self.generate_fromecog(
                             ecog,
-                            mask_prior,
-                            mni=mni,
                             return_components=True,
                             gender=gender,
                             onstage=on_stage,
@@ -2564,14 +2369,10 @@ class Model(nn.Module):
                         if self.rdropout != 0:
                             rec1, components_ecog1 = self.generate_fromecog(
                                 ecog,
-                                mask_prior,
-                                mni=mni,
                                 return_components=True,
                                 gender=gender,
                                 onstage=on_stage,
                             )
-
-                ###### mel db flooding
 
                 betas = {
                     "loudness": 0.01,
@@ -2596,14 +2397,6 @@ class Model(nn.Module):
                     "bandwidth_formants_noise_hz": 1.0,
                 }
 
-                # start from here, abstract to a func `run_components_loss` for R drop purpose(need to run twice)
-                # rec, spec, tracker, encoder_guide, components_ecog, components_guide
-                # run twice to get: components_ecog1, components_ecog2
-                # run_components_loss(components_ecog1, components_ecog2) * self.rdrop_weight
-                # run_components_loss(components_ecog1, components_guide) + run_components_loss(components_ecog1, components_guide) for Lrec
-                # then sum up and return!
-
-                # ordinary loss
                 Loss, tracker = self.run_components_loss(
                     rec,
                     spec,
@@ -2646,486 +2439,6 @@ class Model(nn.Module):
                     Loss = 0.5 * (Loss + Loss1) + self.rdropout * MSELoss
 
                 return Loss, tracker
-
-        else:
-            return_sumofvalue = True
-            # self.return_guide = False
-            self.encoder.requires_grad_(False)
-            key = self.key
-            index = self.index
-            onstage = on_stage
-
-            # import pdb; pdb.set_trace();
-            if gt_comp is None:
-                components_guide = self.encode(
-                    spec,
-                    x_denoise=x_denoise,
-                    duomask=duomask,
-                    noise_level=None,
-                    x_amp=x_amp,
-                    gender=gender,
-                )
-            else:
-                components_guide = gt_comp
-            if self.A2A:
-                components_ecog = self.encoder2(
-                    spec2,
-                    x_denoise=x_denoise,
-                    duomask=duomask,
-                    noise_level=None,
-                    x_amp=x_amp,
-                    gender=gender,
-                )
-            else:
-                components_ecog = self.ecog_encoder(
-                    spec2, mask_prior, mni
-                )  # just for visualization convenience
-            # self.ecog_encoder(ecog, mask_prior,mni)#
-
-            # components_guide = GT
-            # components_ecog = components
-            loudness_db = torchaudio.transforms.AmplitudeToDB()(
-                components_guide["loudness"]
-            )
-            loudness_db_norm = (loudness_db.clamp(min=-70) + 70) / 50
-
-            if key == "spec":
-                rec = self.decoder.forward(
-                    components_ecog, onstage=on_stage
-                )  # * onstage.unsqueeze(-1)
-                if self.return_guide:
-                    rec_gt = self.decoder.forward(
-                        components_guide, onstage=on_stage
-                    )  # * onstage.unsqueeze(-1)
-                    loss = rec_gt
-                elif self.return_value:
-                    loss = rec
-                else:
-                    if return_sumofvalue:
-                        loss = torch.mean(rec)
-                    else:
-                        gt = self.decoder.forward(
-                            components_ecog, onstage=on_stage
-                        )  # * onstage.unsqueeze(-1)
-                        loss = torch.mean((rec - gt) ** 2)
-
-            if key == "loudness":
-                loudness_db_norm_ecog = (
-                    (torchaudio.transforms.AmplitudeToDB()(components_ecog[key]) + 70)
-                    / 50
-                    * onstage
-                )
-                if self.return_guide:
-                    loss = (
-                        (
-                            torchaudio.transforms.AmplitudeToDB()(components_guide[key])
-                            + 70
-                        )
-                        / 50
-                        * onstage
-                    )
-                elif self.return_value:
-                    loss = loudness_db_norm_ecog
-                else:
-                    if return_sumofvalue:
-                        loss = torch.mean(loudness_db_norm_ecog)
-                    else:
-                        loss = torch.mean(
-                            (loudness_db_norm * onstage - loudness_db_norm_ecog).abs()
-                        )
-                    # loss = torch.mean((loudness_db_norm - loudness_db_norm_ecog).abs()*on_stage)
-
-            if key == "f0_hz":
-                # diff = torch.mean((components_guide[key]*6 - components_ecog[key]*6).abs() * onstage * components_guide['loudness']/4)
-                if self.return_guide:
-                    loss = (
-                        components_guide["f0_hz"]
-                        * onstage
-                        * components_guide["amplitudes"][:, 0:1]
-                        / 200
-                        * 5
-                    )
-                elif self.return_value:
-                    loss = (
-                        components_ecog["f0_hz"]
-                        * onstage
-                        * components_guide["amplitudes"][:, 0:1]
-                        / 200
-                        * 5
-                    )
-                else:
-                    if return_sumofvalue:
-                        loss = torch.mean(
-                            components_ecog["f0_hz"]
-                            * onstage
-                            * components_guide["amplitudes"][:, 0:1]
-                            / 200
-                            * 5
-                        )
-                    else:
-                        loss = torch.mean(
-                            (
-                                components_guide["f0_hz"] / 200 * 5
-                                - components_ecog["f0_hz"] / 200 * 5
-                            ).abs()
-                            * onstage
-                            * components_guide["amplitudes"][:, 0:1]
-                        )
-
-            if key in ["amplitudes"]:
-                # if key in ['amplitudes','amplitudes_h']:
-                weight = onstage * loudness_db_norm
-                if self.return_guide:
-                    loss = components_guide["amplitudes"][:, index] * weight
-                elif self.return_value:
-                    loss = components_ecog["amplitudes"][:, index] * weight
-                else:
-                    if return_sumofvalue:
-                        loss = torch.mean(
-                            components_ecog["amplitudes"][:, index] * weight
-                        )
-                    else:
-                        loss = torch.mean(
-                            (
-                                components_guide["amplitudes"][:, index]
-                                - components_ecog["amplitudes"][:, index]
-                            ).abs()
-                            * weight
-                        )
-
-            if key in ["amplitude_formants_hamon"]:
-                weight = (
-                    components_guide["amplitudes"][:, 0:1] * onstage * loudness_db_norm
-                )
-                if self.return_guide:
-                    loss = components_guide["amplitudes"][:, index] * weight
-                elif self.return_value:
-                    loss = components_ecog["amplitude_formants_hamon"] * weight
-                else:
-                    if return_sumofvalue:
-                        loss = torch.mean(
-                            components_ecog["amplitude_formants_hamon"] * weight
-                        )
-                    else:
-                        loss = torch.mean(
-                            (
-                                components_guide["amplitude_formants_hamon"]
-                                - components_ecog["amplitude_formants_hamon"]
-                            ).abs()
-                            * weight
-                        )
-
-            # if key in ['freq_formants_hamon_hz']:
-            #     # weight = components_guide['amplitudes'][:,0:1] * onstage  * loudness_db_norm
-            #     weight = components_guide['amplitude_formants_hamon'][:,:self.n_formants_ecog] *  components_guide['amplitudes'][:,0:1] * onstage  * loudness_db_norm
-            #     if False:#self.ghm_loss:
-            #         diff = 50*self.lae5(components_guide[key][:,:self.n_formants_ecog]/400 , components_ecog[key]/400, reweight=weight)
-            #         # diff = 15*self.lae5(components_guide[key][:,:self.n_formants_ecog]/400 , components_ecog[key]/400, reweight=weight)
-            #     else:
-            #         # diff = 300*torch.mean((components_guide['freq_formants_hamon'][:,:2] - components_ecog['freq_formants_hamon'][:,:2]).abs() * weight)
-            #         # diff = 300*torch.mean((components_guide[key][:,:self.n_formants_ecog]/2000*5 - components_ecog[key][:,:self.n_formants_ecog]/2000*5).abs() * weight)
-            #         diff = 100*torch.mean((components_guide[key][:,:self.n_formants_ecog]/2000*5 - components_ecog[key][:,:self.n_formants_ecog]/2000*5).abs() * weight)
-            #         # diff = 30*torch.mean((components_guide[key][:,:self.n_formants_ecog]/2000*5 - components_ecog[key][:,:self.n_formants_ecog]/2000*5).abs() * weight)
-            #     # diff = torch.mean((components_guide[key][:,:self.n_formants_ecog]*10 - components_ecog[key]*10).abs() * components_guide['amplitude_formants_hamon'][:,:self.n_formants_ecog] *  components_guide['amplitudes'][:,0:1] * onstage * components_guide['loudness']/4 )
-            #     # diff = torch.mean((components_guide[key][:,:self.n_formants_ecog] - components_ecog[key]).abs() * components_guide['amplitude_formants_hamon'][:,:self.n_formants_ecog] *  components_ecog['amplitudes'][:,0:1] * onstage )
-            if key in ["freq_formants_hamon"]:
-                weight = (
-                    components_guide["amplitudes"][:, 0:1] * onstage * loudness_db_norm
-                )
-                # weight = components_guide['amplitude_formants_hamon'][:,:self.n_formants_ecog] *  components_guide['amplitudes'][:,0:1] * onstage  * loudness_db_norm
-                if index is not None:
-                    if self.return_guide:
-                        loss = (
-                            components_guide["freq_formants_hamon_hz"][:, index]
-                            * weight
-                            / 400
-                        )
-                    elif self.return_value:
-                        loss = (
-                            components_ecog["freq_formants_hamon_hz"][:, index]
-                            * weight
-                            / 400
-                        )
-                    else:
-                        if return_sumofvalue:
-                            loss = torch.mean(
-                                components_ecog["freq_formants_hamon_hz"][:, index]
-                                * weight
-                                / 400
-                            )
-                        else:
-                            loss = torch.mean(
-                                (
-                                    components_guide["freq_formants_hamon_hz"][:, index]
-                                    / 400
-                                    - components_ecog["freq_formants_hamon_hz"][
-                                        :, index
-                                    ]
-                                    / 400
-                                ).abs()
-                                * weight
-                            )
-                else:
-                    if self.return_guide:
-                        loss = components_guide["freq_formants_hamon_hz"] * weight / 400
-                    elif self.return_value:
-                        loss = components_ecog["freq_formants_hamon_hz"] * weight / 400
-                    else:
-                        if return_sumofvalue:
-                            loss = torch.mean(
-                                components_ecog["freq_formants_hamon_hz"] * weight / 400
-                            )
-                        else:
-                            loss = torch.mean(
-                                (
-                                    components_guide["freq_formants_hamon_hz"] / 400
-                                    - components_ecog["freq_formants_hamon_hz"] / 400
-                                ).abs()
-                                * weight
-                            )
-
-            if key in ["amplitude_formants_noise"]:
-                weight = (
-                    components_guide["amplitudes"][:, 1:2] * onstage * loudness_db_norm
-                )
-                # loss = torch.mean((torch.cat([components_guide[key],components_guide[key]],dim=1) - components_ecog[key]).abs() *weight)
-                if self.return_guide:
-                    loss = components_guide[key][:, index] * weight
-                elif self.return_value:
-                    loss = components_ecog[key][:, index] * weight
-                else:
-                    if return_sumofvalue:
-                        loss = torch.mean(components_ecog[key][:, index] * weight)
-                    else:
-                        loss = torch.mean(
-                            (
-                                components_guide[key][:, index]
-                                - components_ecog[key][:, index]
-                            ).abs()
-                            * weight
-                        )
-
-            if key in ["freq_formants_noise"]:
-                if index is None:
-                    ampguide = 1
-                else:
-                    ampguide = components_guide["amplitude_formants_noise"][
-                        :, index
-                    ].sum(1, keepdim=True)
-                weight = (
-                    components_guide["amplitudes"][:, 1:2]
-                    * ampguide
-                    * onstage
-                    * loudness_db_norm
-                )
-                if index is None:
-                    if self.return_guide:
-                        loss = components_guide[key] * weight / 2000 * 5
-                    elif self.return_value:
-                        loss = components_ecog[key] * weight / 2000 * 5
-                    else:
-                        if return_sumofvalue:
-                            loss = torch.mean(components_ecog[key] * weight / 2000 * 5)
-                        else:
-                            loss = torch.mean(
-                                (
-                                    components_guide["freq_formants_noise_hz"]
-                                    / 2000
-                                    * 5
-                                    - components_ecog["freq_formants_noise_hz"]
-                                    / 2000
-                                    * 5
-                                ).abs()
-                                * weight
-                            )
-                else:
-                    if self.return_guide:
-                        loss = components_guide[key][:, index] * weight / 2000 * 5
-                    elif self.return_value:
-                        loss = components_ecog[key][:, index] * weight / 2000 * 5
-                    else:
-                        if return_sumofvalue:
-                            loss = torch.mean(
-                                components_ecog[key][:, index] * weight / 2000 * 5
-                            )
-                        else:
-                            loss = torch.mean(
-                                (
-                                    components_guide["freq_formants_noise_hz"][:, index]
-                                    / 2000
-                                    * 5
-                                    - components_ecog["freq_formants_noise_hz"][
-                                        :, index
-                                    ]
-                                    / 2000
-                                    * 5
-                                ).abs()
-                                * weight
-                            )
-
-            # if key in ['freq_formants_noise_hz']:
-            #     weight = components_guide['amplitudes'][:,1:2] * onstage * loudness_db_norm
-            #     if False:#self.ghm_loss:
-            #         diff = 10*self.lae7(components_guide[key][:,-self.n_formants_noise:]/400,components_ecog[key][:,-self.n_formants_noise:]/400,reweight=weight)
-            #     else:
-
-            #         # diff = 30*torch.mean((components_guide[key][:,-self.n_formants_noise:]/2000*5 - components_ecog[key][:,-self.n_formants_noise:]/2000*5).abs() * weight)
-            #         diff = 3*torch.mean((components_guide[key][:,-self.n_formants_noise:]/2000*5 - components_ecog[key][:,-self.n_formants_noise:]/2000*5).abs() * weight)
-            #     # diff = torch.mean((components_guide[key][:,:self.n_formants_ecog] - components_ecog[key]).abs() * components_guide['amplitude_formants_noise'][:,:self.n_formants_ecog] * components_guide['amplitudes'][:,1:2] * onstage )
-            #     diff = self.flooding(diff,betas['freq_formants_noise_hz'])
-            #     tracker.update({'freq_formants_noise_hz_metric': torch.mean((components_guide[key][:,-self.n_formants_noise:]/2000*5 - components_ecog[key][:,-self.n_formants_noise:]/2000*5).abs() * weight)})
-
-            if key in ["bandwidth_formants_noise_hz"]:
-                weight = (
-                    components_guide["amplitudes"][:, 1:2] * onstage * loudness_db_norm
-                )
-                if index is None:
-                    if self.return_guide:
-                        loss = components_guide[key] * weight / 2000 * 5
-                    elif self.return_value:
-                        loss = components_ecog[key] * weight / 2000 * 5
-                    else:
-                        if return_sumofvalue:
-                            loss = torch.mean(components_ecog[key] * weight / 2000 * 5)
-                        else:
-                            loss = torch.mean(
-                                (
-                                    components_guide[key] / 2000 * 5
-                                    - components_ecog[key] / 2000 * 5
-                                ).abs()
-                                * weight
-                            )
-                else:
-                    if self.return_guide:
-                        loss = components_guide[key][:, index] * weight / 2000 * 5
-                    elif self.return_value:
-                        loss = components_ecog[key][:, index] * weight / 2000 * 5
-                    else:
-                        if return_sumofvalue:
-                            loss = torch.mean(
-                                components_ecog[key][:, index] * weight / 2000 * 5
-                            )
-                        else:
-                            loss = torch.mean(
-                                (
-                                    components_guide[key][:, index] / 2000 * 5
-                                    - components_ecog[key][:, index] / 2000 * 5
-                                ).abs()
-                                * weight
-                            )
-
-            if key in ["freq_harm_diff"]:
-                weight = (
-                    components_guide["amplitudes"][:, 0:1] * onstage * loudness_db_norm
-                )
-                if self.return_guide:
-                    loss = (
-                        components_guide["freq_formants_hamon_hz"][:, 1]
-                        / components_guide["freq_formants_hamon_hz"][:, 0]
-                        * weight
-                        / 400
-                    )
-                elif self.return_value:
-                    loss = (
-                        components_ecog["freq_formants_hamon_hz"][:, 1]
-                        / components_ecog["freq_formants_hamon_hz"][:, 0]
-                        * weight
-                        / 400
-                    )
-                else:
-                    if return_sumofvalue:
-                        loss = torch.mean(
-                            components_ecog["freq_formants_hamon_hz"][:, 1]
-                            / components_ecog["freq_formants_hamon_hz"][:, 0]
-                            * weight
-                            / 400
-                        )
-                    else:
-                        loss = torch.mean(
-                            (
-                                components_guide["freq_formants_hamon_hz"][:, 1]
-                                / components_guide["freq_formants_hamon_hz"][:, 0]
-                                - components_ecog["freq_formants_hamon_hz"][:, 1]
-                                / components_ecog["freq_formants_hamon_hz"][:, 0]
-                            ).abs()
-                            * weight
-                        )
-            if key == "onset":
-                onset = torch.zeros_like(onstage)
-                onset[:, :, 32 : 32 + 8] = 1.0
-                loudness_db_norm_ecog = (
-                    (
-                        torchaudio.transforms.AmplitudeToDB()(
-                            components_ecog["loudness"]
-                        )
-                        + 70
-                    )
-                    / 50
-                    * onset
-                )
-                if self.return_guide:
-                    loss = (
-                        (
-                            torchaudio.transforms.AmplitudeToDB()(
-                                components_guide["loudness"]
-                            )
-                            + 70
-                        )
-                        / 50
-                        * onset
-                    )
-                elif self.return_value:
-                    loss = loudness_db_norm_ecog * onset
-                else:
-                    if return_sumofvalue:
-                        loss = torch.mean(loudness_db_norm_ecog * onset)
-                    else:
-                        loss = torch.mean(
-                            (loudness_db_norm * onset - loudness_db_norm_ecog).abs()
-                        )
-                    # loss = torch.mean((loudness_db_norm - loudness_db_norm_ecog).abs()*on_stage)
-
-            if key == "continuouse":
-                continuouse = torch.zeros_like(onstage)
-                continuouse[:, :, 32 + 8 :] = 1.0
-                loudness_db_norm_ecog = (
-                    (
-                        torchaudio.transforms.AmplitudeToDB()(
-                            components_ecog["loudness"]
-                        )
-                        + 70
-                    )
-                    / 50
-                    * continuouse
-                    * onstage
-                )
-                if self.return_guide:
-                    loss = (
-                        (
-                            torchaudio.transforms.AmplitudeToDB()(
-                                components_guide["loudness"]
-                            )
-                            + 70
-                        )
-                        / 50
-                        * continuouse
-                        * onstage
-                    )
-                elif self.return_value:
-                    loss = loudness_db_norm_ecog * continuouse * onstage
-                else:
-                    if return_sumofvalue:
-                        loss = torch.mean(loudness_db_norm_ecog * continuouse * onstage)
-                    else:
-                        loss = torch.mean(
-                            (
-                                loudness_db_norm * continuouse * onstage
-                                - loudness_db_norm_ecog
-                            ).abs()
-                        )
-                    # loss = torch.mean((loudness_db_norm - loudness_db_norm_ecog).abs()*on_stage)
-
-            return loss.unsqueeze(0)
 
     def lerp(self, other, betta, w_classifier=False):
         if hasattr(other, "module"):

@@ -1,0 +1,8 @@
+numpy
+matplotlib
+parselmouth
+librosa
+pytorch
+h5py
+tqdm
+dareblopy

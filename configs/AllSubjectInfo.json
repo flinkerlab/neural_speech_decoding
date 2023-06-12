@@ -1,0 +1,24 @@
+{
+    "Shared":{
+        "RootPath":"/scratch/xc1490/home/projects/ecog/ALAE_1023/data/data/",
+        "ORG_WAVE_FS": 24414.1,
+        "DOWN_WAVE_FS": 16000,
+        "ORG_ECOG_FS": 3051.7625,
+        "ORG_ECOG_FS_NY": 512,
+        "ORG_TF_FS": 125, 
+        "AUDITORY" : ["cSTG","mSTG"],
+        "BROCA" : ["parstriangularis","parsopercularis"],
+        "MOTO" : ["precentral"],
+        "SENSORY" : ["postcentral"],
+        "PARIETAL":["inferiorparietal","supramarginal"],
+        "PHONEMES" : ["silence","aa", "ae", "ah", "ao", "aw", "ay", "b", "ch", "d", "dh", "eh", "er", "ey", "f", "g", "hh", "ih", "iy", "jh", "k", "l", "m", "n", "ng", "ow", "oy", "p", "r", "s", "sh", "t", "th", "uh", "uw", "v", "w", "y", "z", "zh"],
+        "VOICE": ["aa", "ae", "ah", "ao", "aw", "ay", "eh", "er", "ey", "ow", "ih", "iy", "oy", "uh", "uw", "l", "m", "n", "ng", "w","r","y"],
+        "UNVOICE": ["ch","f","hh","k","p","s","sh","t","th"],
+        "SEMIVOICE": ["b","d","g","dh","jh","v","z","zh"],
+        "PLOSIVE": ["b","d","g","t","k","p"],
+        "FRICATIVE": ["ch","s","sh","th","dh","jh","z","zh"]
+    },
+    "Subj":{
+     "NY869": {"Density": "LD", "Task": ["AudN", "AudRep", "PicN", "SenComp", "VisRead"], 
+     "Gender": "Male", "Brain":"left"}}
+     }

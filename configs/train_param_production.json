@@ -1,0 +1,53 @@
+{
+	"Prod":true,
+	"SpecBands":64,
+	"SelectRegion":["AUDITORY","BROCA","MOTO","SENSORY"],
+	"BlockRegion":[],
+	"UseGridOnly":true,
+	"ReshapeAsGrid":true,
+	"SeqLen":128,
+	"DOWN_TF_FS": 125,
+	"DOWN_ECOG_FS": 125,
+	"Subj":{
+	"NY869":{
+	"Crop": null,
+	"Task_comment": ["VisRead","SenComp","PicN","AudN","AudRep","VisRead_imagine","SenComp_imagine","PicN_imagine","AudRep_imagine","AudN_imagine"],
+	"TestNum_comment":[10,10,10,10,10],
+	"Task_percept": ["SenComp","AudN","AudRep","SenComp_imagine","AudRep_imagine","AudN_imagine","SenComp_passive","AudRep_passive","AudN_passive"],
+	"TestNum_percept":[0,0,50,0,0,0,0,0,0],
+	"Task_imagine": ["VisRead","VisRead_imagine","SenComp_imagine","PicN_imagine","AudRep_imagine","AudN_imagine"],
+	"TestNum_imagine":[0,10,10,10,10,10],
+	"Task": ["VisRead","SenComp","PicN","AudN","AudRep"],
+	"TestNum":[10,10,10,10,10],
+	"Trim": 5,
+	"baseline":-0.11,
+	"AlphaSup":true
+	}},
+	"Train":{
+	 "lr": 0.001,
+	 "gamma": 0.8,
+	 "no_cuda": false,
+	 "batch_size": 10,
+	 "num_epochs": 1000,
+	 "save_model": true,
+	 "save_interval": 50,
+		 "save_dir": "/scratch/rw1691/connectivity/ECoG/Connectivity/CKpts/",
+	 "log_interval": 100,
+	 "ahead_onset": 32,
+	 "loss": "L2",
+	 "lam_reg": 0.01
+	},
+	"Test":{
+	 "test_interval": 5,
+	 "batch_size": 10,
+	 "ahead_onset": 32
+	},
+	"Analyze":{
+	  "epoch": 899,
+	  "batch_size":2,
+	  "SeqLen": 400,
+	  "ahead_onset": 200,
+	  "save_path": "/scratch/rw1691/connectivity/ECoG/Connectivity/AnalyzeResult"
+	  
+	}
+   }

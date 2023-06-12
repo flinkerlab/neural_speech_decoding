@@ -9,6 +9,30 @@ Our ECoG to Speech decoding framework is initially described in [A Neural Speech
     <img src="fig/fig1.png" />
 </div>
 
+## Getting Started
+
+### Installation
+
+- Install `CUDA 11.0` with `cuDNN 8` following the official installation guide of [CUDA](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html) and [cuDNN](https://developer.nvidia.com/rdp/cudnn-archive).
+
+- Setup conda environment:
+```bash
+conda create -n Neural_Speech python=3.7 -y
+conda activate Neural_Speech
+
+# Install requirements
+conda install pytorch torchvision torchaudio cudatoolkit=11 -c pytorch -y
+
+# Clone SimMIM
+git clone https://github.com/james20141606/neural_speech_decoding
+cd neural_speech_decoding
+
+# Install other requirements
+pip install -r requirements.txt
+```
+
+
+
 ## Data
 
 Prepare the data in HDF5 format, refer to the [notebook](notebooks/prepare_data.ipynb)
@@ -49,3 +73,5 @@ Visualizing the results using [notebook](notebooks/result.ipynb)
 
 ## Running time
 We train 60 epochs for Speech to Speech and ECoG to Speech. Running on one A100 GPU usually take 6 hours for Speech to Speech and 10 hours for ECoG to Speech
+
+## Citing Our Work

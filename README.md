@@ -1,5 +1,13 @@
-# ECoG to Speech Decoding using differentiable speech synthesizer
+# A Neural Speech Decoding Framework Leveraging Deep Learning and Speech Synthesis
 
+By ...
+
+## Introduction
+Our ECoG to Speech decoding framework is initially described in [](). We present a novel deep learning-based neural speech decoding framework that includes an ECoG Decoder that translates electrocorticographic (ECoG) signals from the cortex into interpretable speech parameters and a novel differentiable Speech Synthesizer that maps speech parameters to spectrograms. We develop a companion audio-to-audio auto-encoder consisting of a Speech Encoder and the same Speech Synthesizer to generate reference speech parameters to facilitate the training of the ECoG Decoder. This framework generates natural-sounding speech and is highly reproducible across a large cohort of participants (n=48). We provide two-stage training **pipeline** with visualization tools.
+
+<div align="center">
+    <img src="fig/fig1.pdf" height="250px" />
+</div>
 
 ## Data
 

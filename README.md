@@ -69,10 +69,6 @@ python train_e2a.py --OUTPUT_DIR output/resnet_NY869 --trainsubject NY869 --test
 ```
 
 
-## Result Viz
-
-Visualizing the results using [notebook](notebooks/result.ipynb)
-
 ## Running time
 We train 60 epochs for Speech to Speech and ECoG to Speech. Running on one A100 GPU usually take 6 hours for Speech to Speech and 10 hours for ECoG to Speech
 

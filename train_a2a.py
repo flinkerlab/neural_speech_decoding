@@ -29,7 +29,7 @@ from utils.launcher import run
 from utils.defaults import get_cfg_defaults
 from utils.save import save_sample
 device = "cuda" if torch.cuda.is_available() else "cpu"
-
+DEBUG = 0
 parser = argparse.ArgumentParser(description="formant")
 parser.add_argument(
     "-c",
@@ -167,7 +167,6 @@ parser.add_argument(
     default=0,
     help="check if use old formant could fix the bug?",
 )
-parser.add_argument("--HIDDEN_DIM", type=int, default=32, help="HIDDEN_DIM")
 parser.add_argument(
     "--reshape", type=int, default=-1, help="-1 None, 0 no reshape, 1 reshape"
 )
@@ -287,16 +286,18 @@ def train(cfg, logger, local_rank, world_size, distributed):
     if args_.trainsubject != "":
         train_subject_info = args_.trainsubject.split(",")
     else:
-        train_subject_info = cfg.DATASET.SUBJECT  # already splitted
+        train_subject_info = args_.subject.split(
+            ","
+        )
     if args_.testsubject != "":
         test_subject_info = args_.testsubject.split(",")
     else:
-        test_subject_info = cfg.DATASET.SUBJECT
+        test_subject_info = args_.subject.split(",")  # cfg.DATASET.SUBJECT
 
     if args_.unified:  # unifiy to gender male!
         for sub_in_train in train_subject_info:
             allsubj_param["Subj"][sub_in_train]["Gender"] = "Male"
-
+    subject = train_subject_info[0]
     model = Model(
         generator=cfg.MODEL.GENERATOR,
         encoder=cfg.MODEL.ENCODER,
@@ -310,40 +311,49 @@ def train(cfg, logger, local_rank, world_size, distributed):
         noise_db=cfg.MODEL.NOISE_DB,
         max_db=cfg.MODEL.MAX_DB,
         with_ecog=cfg.MODEL.ECOG,
-        with_encoder2=cfg.VISUAL.A2A,
-        hidden_dim=cfg.MODEL.TRANSFORMER.HIDDEN_DIM,
-        encoder_only=cfg.MODEL.TRANSFORMER.ENCODER_ONLY,
-        attentional_mask=cfg.MODEL.TRANSFORMER.ATTENTIONAL_MASK,
-        n_heads=cfg.MODEL.TRANSFORMER.N_HEADS,
-        non_local=cfg.MODEL.TRANSFORMER.NON_LOCAL,
         do_mel_guide=cfg.MODEL.DO_MEL_GUIDE,
         noise_from_data=cfg.MODEL.BGNOISE_FROMDATA and cfg.DATASET.PROD,
         specsup=cfg.FINETUNE.SPECSUP,
         power_synth=cfg.MODEL.POWER_SYNTH,
-        ecog_compute_db_loudness=cfg.MODEL.ECOG_COMPUTE_DB_LOUDNESS,
         apply_flooding=cfg.FINETUNE.APPLY_FLOODING,
         normed_mask=cfg.MODEL.NORMED_MASK,
         dummy_formant=cfg.MODEL.DUMMY_FORMANT,
-        learned_mask=cfg.MODEL.LEARNED_MASK,
-        n_filter_samples=cfg.MODEL.N_FILTER_SAMPLES,
-        Visualize=cfg.VISUAL.VISUAL,
-        key=cfg.VISUAL.KEY,
-        index=cfg.VISUAL.INDEX,
         A2A=cfg.VISUAL.A2A,
         causal=cfg.MODEL.CAUSAL,
         anticausal=cfg.MODEL.ANTICAUSAL,
         pre_articulate=cfg.DATASET.PRE_ARTICULATE,
-        alpha_sup=param["Subj"][train_subject_info[0]]["AlphaSup"],
-        # dynamic_bgnoise = not(cfg.DATASET.PROD),
+        alpha_sup=param["Subj"][train_subject_info[0]][
+            "AlphaSup"
+        ],
+        ld_loss_weight=cfg.MODEL.ld_loss_weight,
+        alpha_loss_weight=cfg.MODEL.alpha_loss_weight,
+        consonant_loss_weight=cfg.MODEL.consonant_loss_weight,
+        component_regression=cfg.MODEL.component_regression,
+        amp_formant_loss_weight=cfg.MODEL.amp_formant_loss_weight,
+        freq_single_formant_loss_weight=cfg.MODEL.freq_single_formant_loss_weight,
+        amp_minmax=cfg.MODEL.amp_minmax,
+        amp_energy=cfg.MODEL.amp_energy,
+        f0_midi=cfg.MODEL.f0_midi,
+        alpha_db=cfg.MODEL.alpha_db,
+        network_db=cfg.MODEL.network_db,
+        consistency_loss=cfg.MODEL.consistency_loss,
+        delta_time=cfg.MODEL.delta_time,
+        delta_freq=cfg.MODEL.delta_freq,
+        cumsum=cfg.MODEL.cumsum,
+        distill=cfg.MODEL.distill,
+        learned_mask=cfg.MODEL.LEARNED_MASK,
+        n_filter_samples=cfg.MODEL.N_FILTER_SAMPLES,
+        patient=subject,
+        batch_size=cfg.TRAIN.BATCH_SIZE,
+        rdropout=cfg.MODEL.rdropout,
         dynamic_filter_shape=cfg.MODEL.DYNAMIC_FILTER_SHAPE,
         learnedbandwidth=cfg.MODEL.LEARNEDBANDWIDTH,
-        tmpsavepath=args_.OUTPUT_DIR,
-        spec_fr=allsubj_param["Shared"]["ORG_TF_FS"],
         gender_patient=allsubj_param["Subj"][train_subject_info[0]]["Gender"],
-        return_filtershape=cfg.MODEL.RETURNFILTERSHAPE,
-        unified=args_.unified,
+        reverse_order=args_.reverse_order,
+        larger_capacity=args_.lar_cap,
         use_stoi=args_.use_stoi,
     )
+
     if torch.cuda.is_available():
         model.cuda(local_rank)
     model.train()
@@ -361,41 +371,49 @@ def train(cfg, logger, local_rank, world_size, distributed):
         noise_db=cfg.MODEL.NOISE_DB,
         max_db=cfg.MODEL.MAX_DB,
         with_ecog=cfg.MODEL.ECOG,
-        with_encoder2=cfg.VISUAL.A2A,
-        hidden_dim=cfg.MODEL.TRANSFORMER.HIDDEN_DIM,
-        dim_feedforward=cfg.MODEL.TRANSFORMER.DIM_FEEDFORWARD,
-        encoder_only=cfg.MODEL.TRANSFORMER.ENCODER_ONLY,
-        attentional_mask=cfg.MODEL.TRANSFORMER.ATTENTIONAL_MASK,
-        n_heads=cfg.MODEL.TRANSFORMER.N_HEADS,
-        non_local=cfg.MODEL.TRANSFORMER.NON_LOCAL,
         do_mel_guide=cfg.MODEL.DO_MEL_GUIDE,
         noise_from_data=cfg.MODEL.BGNOISE_FROMDATA and cfg.DATASET.PROD,
         specsup=cfg.FINETUNE.SPECSUP,
         power_synth=cfg.MODEL.POWER_SYNTH,
-        ecog_compute_db_loudness=cfg.MODEL.ECOG_COMPUTE_DB_LOUDNESS,
         apply_flooding=cfg.FINETUNE.APPLY_FLOODING,
         normed_mask=cfg.MODEL.NORMED_MASK,
         dummy_formant=cfg.MODEL.DUMMY_FORMANT,
-        learned_mask=cfg.MODEL.LEARNED_MASK,
-        n_filter_samples=cfg.MODEL.N_FILTER_SAMPLES,
-        Visualize=cfg.VISUAL.VISUAL,
-        key=cfg.VISUAL.KEY,
-        index=cfg.VISUAL.INDEX,
         A2A=cfg.VISUAL.A2A,
         causal=cfg.MODEL.CAUSAL,
         anticausal=cfg.MODEL.ANTICAUSAL,
         pre_articulate=cfg.DATASET.PRE_ARTICULATE,
-        alpha_sup=param["Subj"][train_subject_info[0]]["AlphaSup"],
-        # dynamic_bgnoise = not(cfg.DATASET.PROD),
+        alpha_sup=param["Subj"][train_subject_info[0]][
+            "AlphaSup"
+        ],
+        ld_loss_weight=cfg.MODEL.ld_loss_weight,
+        alpha_loss_weight=cfg.MODEL.alpha_loss_weight,
+        consonant_loss_weight=cfg.MODEL.consonant_loss_weight,
+        component_regression=cfg.MODEL.component_regression,
+        amp_formant_loss_weight=cfg.MODEL.amp_formant_loss_weight,
+        freq_single_formant_loss_weight=cfg.MODEL.freq_single_formant_loss_weight,
+        amp_minmax=cfg.MODEL.amp_minmax,
+        amp_energy=cfg.MODEL.amp_energy,
+        f0_midi=cfg.MODEL.f0_midi,
+        alpha_db=cfg.MODEL.alpha_db,
+        network_db=cfg.MODEL.network_db,
+        consistency_loss=cfg.MODEL.consistency_loss,
+        delta_time=cfg.MODEL.delta_time,
+        delta_freq=cfg.MODEL.delta_freq,
+        cumsum=cfg.MODEL.cumsum,
+        distill=cfg.MODEL.distill,
+        learned_mask=cfg.MODEL.LEARNED_MASK,
+        n_filter_samples=cfg.MODEL.N_FILTER_SAMPLES,
+        patient=subject,
+        batch_size=cfg.TRAIN.BATCH_SIZE,
+        rdropout=cfg.MODEL.rdropout,
         dynamic_filter_shape=cfg.MODEL.DYNAMIC_FILTER_SHAPE,
         learnedbandwidth=cfg.MODEL.LEARNEDBANDWIDTH,
-        tmpsavepath=args_.OUTPUT_DIR,
-        spec_fr=allsubj_param["Shared"]["ORG_TF_FS"],
         gender_patient=allsubj_param["Subj"][train_subject_info[0]]["Gender"],
-        return_filtershape=cfg.MODEL.RETURNFILTERSHAPE,
-        unified=args_.unified,
+        reverse_order=args_.reverse_order,
+        larger_capacity=args_.lar_cap,
         use_stoi=args_.use_stoi,
     )
+    
     if torch.cuda.is_available():
         model_s.cuda(local_rank)
     model_s.eval()
@@ -599,7 +617,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
             pitch_label=pitch_label,
             intensity_label=intensity_label,
             DEBUG=DEBUG,
-            use_denoise=args_.use_denoise,
         )
 
     dataset_test_all = {}
@@ -623,7 +640,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 formant_label=args_.formant_supervision,
                 pitch_label=pitch_label,
                 intensity_label=intensity_label,
-                use_denoise=args_.use_denoise,
             )
 
     # allow for LD!
@@ -1480,10 +1496,7 @@ if __name__ == "__main__":
     subj_param = allsubj_param["Subj"][train_subject_info[0]]
     Gender = subj_param["Gender"] if cfg.DATASET.PROD else "Female"
     config_file = (
-        "configs/ecog_style2_a.yaml"
-        if Gender == "Female"
-        else "configs/ecog_style2_a_male.yaml"
-    )
+        "configs/a2a_production.yaml")
     if len(os.path.splitext(config_file)[1]) == 0:
         config_file += ".yaml"
     if not os.path.exists(config_file) and os.path.exists(

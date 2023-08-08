@@ -1,3 +1,6 @@
+configs/ecog_style2_a.yaml
+configs/ecog_style2_a_male.yaml
+AllSubjectInfo.json
 train_param_e2a_production.json
 train_a2a_infer.py
 notebooks/.ipynb_checkpoints

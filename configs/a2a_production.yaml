@@ -81,7 +81,7 @@ MODEL:
     N_HEADS : 4
     NON_LOCAL: True
   # ATTENTION: []
-OUTPUT_DIR: 'output'
+  OUTPUT_DIR: 'output'
 IGNORE_LOADING: False
 FINETUNE:
   FINETUNE: False

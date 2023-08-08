@@ -13,27 +13,22 @@
 # limitations under the License.
 # ==============================================================================
 
-import pdb
 import torch
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
-import json
+from torch import optim as optim
 import torch.utils.data
+from tqdm import tqdm as tqdm
+import numpy as np
+import argparse, os, json, yaml
 from networks import *
-from dataloader import *
 from model import Model
+from dataset import *
+from tracker import LossTracker
+from utils.custom_adam import LREQAdam
+from utils.checkpointer import Checkpointer
 from utils.launcher import run
 from utils.defaults import get_cfg_defaults
 from utils.save import save_sample
-
-import os
-from checkpointer import Checkpointer
-from custom_adam import LREQAdam
-from tqdm import tqdm as tqdm
-from tracker import LossTracker
-import numpy as np
-import itertools
-import argparse
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 parser = argparse.ArgumentParser(description="formant")
 parser.add_argument(
@@ -267,7 +262,7 @@ parser.add_argument(
 )
 args_ = parser.parse_args()
 
-with open("AllSubjectInfo.json", "r") as rfile:
+with open("configs/AllSubjectInfo.json", "r") as rfile:
     allsubj_param = json.load(rfile)
 
 # with open('train_param.json','r') as rfile:
@@ -275,11 +270,6 @@ with open("AllSubjectInfo.json", "r") as rfile:
 with open("train_param_e2a_production.json", "r") as rfile:
     param = json.load(rfile)
 
-
-if args_.cv:
-    from dataloader_ecog_production_CV import *
-else:
-    from dataloader_ecog_production import *
 
 
 def reshape_multi_batch(x, batchsize=2, patient_len=1):
@@ -591,31 +581,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
         pitch_label = False
         intensity_label = False
 
-    if args_.cv:
-        dataset = TFRecordsDataset(
-            cfg,
-            logger,
-            rank=local_rank,
-            world_size=world_size,
-            buffer_size_mb=1024,
-            channels=cfg.MODEL.CHANNELS,
-            param=param,
-            allsubj_param=allsubj_param,
-            SUBJECT=train_subject_info,
-            ReshapeAsGrid=1,
-            rearrange_elec=0,
-            low_density=(cfg.DATASET.DENSITY == "LD"),
-            process_ecog=False,
-            formant_label=args_.formant_supervision,
-            pitch_label=pitch_label,
-            intensity_label=intensity_label,
-            DEBUG=DEBUG,
-            LOO=args_.LOO,
-            cv_ind=args_.cv_ind,
-            use_denoise=args_.use_denoise,
-        )
-    else:
-        dataset = TFRecordsDataset(
+    dataset = TFRecordsDataset(
             cfg,
             logger,
             rank=local_rank,
@@ -639,31 +605,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
     dataset_test_all = {}
     # print ('test_sub infor', test_subject_info)
     for subject in test_subject_info:
-        if args_.cv:
-            dataset_test_all[subject] = TFRecordsDataset(
-                cfg,
-                logger,
-                rank=local_rank,
-                world_size=world_size,
-                buffer_size_mb=1024,
-                channels=cfg.MODEL.CHANNELS,
-                train=False,
-                param=param,
-                allsubj_param=allsubj_param,
-                SUBJECT=[subject],
-                ReshapeAsGrid=1,
-                rearrange_elec=0,
-                low_density=(cfg.DATASET.DENSITY == "LD"),
-                process_ecog=False,
-                formant_label=args_.formant_supervision,
-                pitch_label=pitch_label,
-                intensity_label=intensity_label,
-                LOO=args_.LOO,
-                cv_ind=args_.cv_ind,
-                use_denoise=args_.use_denoise,
-            )
-        else:
-            dataset_test_all[subject] = TFRecordsDataset(
+        dataset_test_all[subject] = TFRecordsDataset(
                 cfg,
                 logger,
                 rank=local_rank,
@@ -1529,7 +1471,7 @@ if __name__ == "__main__":
     else:
         test_subject_info = args_.subject.split(",")  # cfg.DATASET.SUBJECT
 
-    with open("AllSubjectInfo.json", "r") as rfile:
+    with open("configs/AllSubjectInfo.json", "r") as rfile:
         allsubj_param = json.load(rfile)
     print(train_subject_info)
     if args_.unified:  # unifiy to gender male!

@@ -14,7 +14,7 @@ class ECoGDataset(Dataset):
         
     def __init__(self, cfg,ReqSubjDict, mode = 'train', train_param = None,BCTS=None,world_size=1,ReshapeAsGrid=None,
                  DEBUG=False, rearrange_elec=0, low_density = True, process_ecog = True, formant_label = False, allsubj_param = None, 
-                 pitch_label = False, intensity_label = False, data_dir = 'data/'):
+                 pitch_label = False, intensity_label = False, data_dir = 'data/',infer=False):
         """ ReqSubjDict can be a list of multiple subjects"""
         super(ECoGDataset, self).__init__()
         self.DEBUG = DEBUG
@@ -24,6 +24,7 @@ class ECoGDataset(Dataset):
         self.mode = mode
         BCTS = cfg.DATASET.BCTS
         self.BCTS = BCTS
+        self.infer = infer
         self.rearrange_elec = rearrange_elec
         self.SpecBands = cfg.DATASET.SPEC_CHANS
         self.pre_articulate = cfg.DATASET.PRE_ARTICULATE
@@ -132,10 +133,14 @@ class ECoGDataset(Dataset):
         pre_articulate_len = self.ahead_onset_test
         for i in range(num_dataset):
             if self.mode =='train':
-                rand_ind = np.random.choice(np.arange(self.start_ind_re_valid_alldataset[i].shape[0])[:-self.TestNum_cum[i]],1,replace=False)[0]
+                if self.infer:
+                    rand_ind = idx
+                else:
+                    rand_ind = np.random.choice(np.arange(self.start_ind_re_valid_alldataset[i].shape[0])[:-self.TestNum_cum[i]],1,replace=False)[0]
             elif self.mode =='test':
                 rand_ind = idx+self.start_ind_re_valid_alldataset[i].shape[0]-self.TestNum_cum[i]
             label = [self.label_alldataset[i][rand_ind]]
+            print ('rand_ind',rand_ind)
             if self.Prod:
                 start_indx_re = self.start_ind_re_valid_alldataset[i][rand_ind]
                 end_indx_re = self.end_ind_re_valid_alldataset[i][rand_ind]
@@ -227,12 +232,12 @@ class ECoGDataset(Dataset):
 
 
 class TFRecordsDataset:
-    def __init__(self, cfg, logger, rank=0, world_size=1, buffer_size_mb=200, channels=3, seed=None, train=True, needs_labels=False,param=None,ReshapeAsGrid=None,SUBJECT='NY742',rearrange_elec=False,low_density = True, process_ecog = True, formant_label = False, pitch_label = False, intensity_label = False,DEBUG=False,allsubj_param=None):
+    def __init__(self, cfg, logger, rank=0, world_size=1, buffer_size_mb=200,infer=False, channels=3, seed=None, train=True, needs_labels=False,param=None,ReshapeAsGrid=None,SUBJECT='NY742',rearrange_elec=False,low_density = True, process_ecog = True, formant_label = False, pitch_label = False, intensity_label = False,DEBUG=False,allsubj_param=None):
         self.param = param
         self.dataset = ECoGDataset(cfg, SUBJECT, mode='train' if train else 'test', world_size = world_size, \
             train_param = param, allsubj_param = allsubj_param, ReshapeAsGrid = ReshapeAsGrid, rearrange_elec = rearrange_elec, low_density = low_density, \
                 process_ecog = process_ecog, formant_label = formant_label, pitch_label = pitch_label, \
-                    intensity_label = intensity_label,DEBUG=DEBUG)
+                    intensity_label = intensity_label,DEBUG=DEBUG,infer=infer)
         self.noise_dist = self.dataset.meta_data['noisesample_re_alldataset'][0][:]
         self.cfg = cfg
         self.logger = logger

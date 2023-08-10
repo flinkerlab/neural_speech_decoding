@@ -14,7 +14,7 @@ class ECoGDataset(Dataset):
         
     def __init__(self, cfg,ReqSubjDict, mode = 'train', train_param = None,BCTS=None,world_size=1,ReshapeAsGrid=None,
                  DEBUG=False, rearrange_elec=0, low_density = True, process_ecog = True, formant_label = False, allsubj_param = None, 
-                 pitch_label = False, intensity_label = False, data_dir = 'data/',infer=False):
+                 pitch_label = False, intensity_label = False, data_dir = 'data/',infer=False,repeattimes=128):
         """ ReqSubjDict can be a list of multiple subjects"""
         super(ECoGDataset, self).__init__()
         self.DEBUG = DEBUG
@@ -46,7 +46,7 @@ class ECoGDataset(Dataset):
             if not os.path.exists(meta_h5_file):
                 raise FileNotFoundError(meta_h5_file) 
             else:
-                meta_data =  h5py.File(meta_h5_file) 
+                meta_data =  h5py.File(meta_h5_file,'r') 
             for k, v in meta_data.items():
                 if k in self.meta_data:
                     self.meta_data[k].extend([v])
@@ -106,9 +106,9 @@ class ECoGDataset(Dataset):
         self.wave_spec_re_alldataset = self.meta_data['wave_re_spec_alldataset']
         self.wave_re_alldataset = self.meta_data['wave_re_alldataset']
         self.wave_spec_re_amp_alldataset = self.meta_data['wave_re_spec_amp_alldataset']
-        
+        self.repeattimes =  repeattimes
     def __len__(self):
-        repeattimes = 128
+        repeattimes = self.repeattimes
         if self.mode == 'train':
             return np.array([start_ind_re_alldataset.shape[0]*(repeattimes if 'NY798' in self.ReqSubjDict else repeattimes)//self.world_size for start_ind_re_alldataset in self.meta_data['start_ind_re_valid_alldataset']]).sum()
         else:
@@ -139,8 +139,9 @@ class ECoGDataset(Dataset):
                     rand_ind = np.random.choice(np.arange(self.start_ind_re_valid_alldataset[i].shape[0])[:-self.TestNum_cum[i]],1,replace=False)[0]
             elif self.mode =='test':
                 rand_ind = idx+self.start_ind_re_valid_alldataset[i].shape[0]-self.TestNum_cum[i]
+            #print ('rand_ind',idx, rand_ind)
             label = [self.label_alldataset[i][rand_ind]]
-            print ('rand_ind',rand_ind)
+            
             if self.Prod:
                 start_indx_re = self.start_ind_re_valid_alldataset[i][rand_ind]
                 end_indx_re = self.end_ind_re_valid_alldataset[i][rand_ind]
@@ -232,16 +233,21 @@ class ECoGDataset(Dataset):
 
 
 class TFRecordsDataset:
-    def __init__(self, cfg, logger, rank=0, world_size=1, buffer_size_mb=200,infer=False, channels=3, seed=None, train=True, needs_labels=False,param=None,ReshapeAsGrid=None,SUBJECT='NY742',rearrange_elec=False,low_density = True, process_ecog = True, formant_label = False, pitch_label = False, intensity_label = False,DEBUG=False,allsubj_param=None):
+    def __init__(self, cfg, logger, rank=0, world_size=1, buffer_size_mb=200,data_dir = 'data/',\
+        infer=False, channels=3, seed=None, train=True, needs_labels=False,param=None,\
+            ReshapeAsGrid=None,SUBJECT='NY742',rearrange_elec=False,low_density = True,\
+                process_ecog = True, formant_label = False, pitch_label = False, \
+                    intensity_label = False,DEBUG=False,allsubj_param=None,repeattimes=128):
         self.param = param
         self.dataset = ECoGDataset(cfg, SUBJECT, mode='train' if train else 'test', world_size = world_size, \
             train_param = param, allsubj_param = allsubj_param, ReshapeAsGrid = ReshapeAsGrid, rearrange_elec = rearrange_elec, low_density = low_density, \
                 process_ecog = process_ecog, formant_label = formant_label, pitch_label = pitch_label, \
-                    intensity_label = intensity_label,DEBUG=DEBUG,infer=infer)
+                    intensity_label = intensity_label,DEBUG=DEBUG,infer=infer,data_dir = data_dir,repeattimes=repeattimes)
         self.noise_dist = self.dataset.meta_data['noisesample_re_alldataset'][0][:]
         self.cfg = cfg
         self.logger = logger
         self.rank = rank
+        self.infer = infer
         self.last_data = ""
         if train:
             self.part_count = cfg.DATASET.PART_COUNT
@@ -264,13 +270,13 @@ class TFRecordsDataset:
         self.buffer_size_b = 1024 ** 2 * buffer_size_mb
         self.iterator = torch.utils.data.DataLoader(self.dataset,
                                                batch_size=self.batch_size,
-                                               shuffle=True if self.train else False,
+                                               shuffle=True if (self.train and not self.infer) else False,
                                                drop_last=True if self.train else False)
     def reset(self, lod, batch_size):
         if batch_size!=self.batch_size:
             self.iterator = torch.utils.data.DataLoader(self.dataset,
                                                batch_size=batch_size,
-                                               shuffle=True if self.train else False,
+                                               shuffle=True if (self.train and not self.infer) else False,
                                                drop_last=True if self.train else False)
         self.batch_size = batch_size
         self.dataset.current_lod=lod

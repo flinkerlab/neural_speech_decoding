@@ -28,6 +28,7 @@ from utils.checkpointer import Checkpointer
 from utils.launcher import run
 from utils.defaults import get_cfg_defaults
 from utils.save import save_sample
+import itertools
 device = "cuda" if torch.cuda.is_available() else "cpu"
 DEBUG = 0
 parser = argparse.ArgumentParser(description="formant")
@@ -272,10 +273,14 @@ with open("train_param_e2a_production.json", "r") as rfile:
 
 
 def reshape_multi_batch(x, batchsize=2, patient_len=1):
-    x = torch.transpose(x, 0, 1)
-    return x.reshape(
-        [patient_len * batchsize, x.shape[0] // patient_len] + list(x.shape[2:])
-    )
+    if x is not None:
+        x = torch.transpose(x, 0, 1)
+        return x.reshape(
+            [patient_len * batchsize, x.shape[0] // patient_len] + list(x.shape[2:])
+        )
+    else:
+        return x
+
 
 
 def train(cfg, logger, local_rank, world_size, distributed):
@@ -546,11 +551,11 @@ def train(cfg, logger, local_rank, world_size, distributed):
     if args_.trainsubject != "":
         train_subject_info = args_.trainsubject.split(",")
     else:
-        train_subject_info = cfg.DATASET.SUBJECT
+        train_subject_info = args_.subject.split(",")
     if args_.testsubject != "":
         test_subject_info = args_.testsubject.split(",")
     else:
-        test_subject_info = cfg.DATASET.SUBJECT
+        test_subject_info = args_.subject.split(",")
 
     patient_len = len(train_subject_info)
 
@@ -570,22 +575,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
         ignore_auxiliary=True,
         file_name=load_model_dir,
     )
-    # cfg.FINETUNE.FINETUNE,\
     arguments.update(extra_checkpoint_data)
-    # ignore loading is set to be false
-    # logger.info("Starting from epoch: %d" % (scheduler.start_epoch()))
-
-    # for e2a, should write in list, so we load the data together in one batch if we have a2a multi!
-    # dataset_all, dataset_test_all = {},{}
-    # for subject in np.union1d(train_subject_info, test_subject_info):
-    #    dataset_all[subject] = TFRecordsDataset(cfg, logger, rank=local_rank, world_size=world_size,SUBJECT=[subject], buffer_size_mb=1024, channels=cfg.MODEL.CHANNELS,param=param\
-    #                                ,ReshapeAsGrid=1, rearrange_elec=0, low_density = (cfg.DATASET.DENSITY == 'LD'), process_ecog = True)
-    # for subject in test_subject_info:
-    #    dataset_test_all[subject] = TFRecordsDataset(cfg, logger, rank=local_rank, world_size=world_size,SUBJECT=[subject], buffer_size_mb=1024, channels=cfg.MODEL.CHANNELS,train=False,param=param\
-    #                                ,ReshapeAsGrid=1, rearrange_elec=0, low_density = (cfg.DATASET.DENSITY == 'LD'), process_ecog =True)
-
-    # data_param, train_param, test_param = param['Data'], param['Train'], param['Test']
-
     print(
         "supervisions: args_.formant_supervision, args_.pitch_supervision, args_.intensity_supervision",
         args_.formant_supervision,
@@ -608,7 +598,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
             channels=cfg.MODEL.CHANNELS,
             param=param,
             allsubj_param=allsubj_param,
-            SUBJECT=train_subject_info,
+            SUBJECT=[train_subject_info[0]],
             ReshapeAsGrid=1,
             rearrange_elec=0,
             low_density=(cfg.DATASET.DENSITY == "LD"),
@@ -714,31 +704,13 @@ def train(cfg, logger, local_rank, world_size, distributed):
             sample_wave_test_all[subject] = (
                 sample_dict_test["wave_re_batch_all"].to(device).float()
             )
-            sample_wave_denoise_test_all[subject] = (
-                sample_dict_test["wave_re_denoise_batch_all"].to(device).float()
-            )
-            if not cfg.DATASET.DENSITY == "LD":
-                sample_voice_test_all[subject] = (
-                    sample_dict_test["voice_re_batch_all"].to(device).float()
-                )
-                sample_unvoice_test_all[subject] = (
-                    sample_dict_test["unvoice_re_batch_all"].to(device).float()
-                )
-                sample_semivoice_test_all[subject] = (
-                    sample_dict_test["semivoice_re_batch_all"].to(device).float()
-                )
-                sample_plosive_test_all[subject] = (
-                    sample_dict_test["plosive_re_batch_all"].to(device).float()
-                )
-                sample_fricative_test_all[subject] = (
-                    sample_dict_test["fricative_re_batch_all"].to(device).float()
-                )
-            else:
-                sample_voice_test_all[subject] = None
-                sample_unvoice_test_all[subject] = None
-                sample_semivoice_test_all[subject] = None
-                sample_plosive_test_all[subject] = None
-                sample_fricative_test_all[subject] = None
+        
+
+            sample_voice_test_all[subject] = None
+            sample_unvoice_test_all[subject] = None
+            sample_semivoice_test_all[subject] = None
+            sample_plosive_test_all[subject] = None
+            sample_fricative_test_all[subject] = None
 
             if cfg.MODEL.WAVE_BASED:
                 sample_spec_test_all[subject] = (
@@ -753,19 +725,13 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     .to(device)
                     .float()
                 )
-                sample_spec_denoise_test_all[subject] = (
-                    sample_dict_test["wave_spec_re_denoise_batch_all"]
-                    .to(device)
-                    .float()
-                )
-                # sample_spec_test = wave2spec(sample_wave_test,n_fft=cfg.MODEL.N_FFT,noise_db=cfg.MODEL.NOISE_DB,max_db=cfg.MODEL.MAX_DB)
             else:
                 sample_spec_test_all[subject] = (
                     sample_dict_test["spkr_re_batch_all"].to(device).float()
                 )
                 sample_spec_denoise_test_all[
                     subject
-                ] = None  # sample_dict_test['wave_spec_re_denoise_batch_all'].to(device).float()
+                ] = None
             sample_label_test_all[subject] = sample_dict_test["label_batch_all"]
             gender_test_all[subject] = sample_dict_test["gender_all"]
             if cfg.MODEL.ECOG:
@@ -814,80 +780,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 cfg.MODEL.MAX_DB,
             )
 
-        else:
-            sample_wave_test = sample_dict_test["wave_batch_all"].to(device).float()
-            sample_wave_denoise_test = (
-                sample_dict_test["wave_denoise_batch_all"].to(device).float()
-            )
-            if not cfg.DATASET.DENSITY == "LD":
-                sample_voice_test = (
-                    sample_dict_test["voice_batch_all"].to(device).float()
-                )
-                sample_unvoice_test = (
-                    sample_dict_test["unvoice_batch_all"].to(device).float()
-                )
-                sample_semivoice_test = (
-                    sample_dict_test["semivoice_batch_all"].to(device).float()
-                )
-                sample_plosive_test = (
-                    sample_dict_test["plosive_batch_all"].to(device).float()
-                )
-                sample_fricative_test = (
-                    sample_dict_test["fricative_batch_all"].to(device).float()
-                )
-            if cfg.MODEL.WAVE_BASED:
-                sample_spec_test = (
-                    sample_dict_test["wave_spec_batch_all"].to(device).float()
-                )
-                sample_spec_amp_test = (
-                    sample_dict_test["wave_spec_denoise_amp_batch_all"]
-                    .to(device)
-                    .float()
-                    if x_amp_from_denoise
-                    else sample_dict_test["wave_spec_amp_batch_all"].to(device).float()
-                )
-                sample_spec_denoise_test = (
-                    sample_dict_test["wave_spec_denoise_batch_all"].to(device).float()
-                )
-                # sample_spec_test = wave2spec(sample_wave_test,n_fft=cfg.MODEL.N_FFT,noise_db=cfg.MODEL.NOISE_DB,max_db=cfg.MODEL.MAX_DB)
-            else:
-                sample_spec_test = sample_dict_test["spkr_batch_all"].to(device).float()
-                sample_spec_denoise_test = None  # sample_dict_test['wave_spec_denoise_batch_all'].to(device).float()
-            sample_label_test = sample_dict_test["label_batch_all"]
-            gender_test = sample_dict_test["gender_all"]
-            if cfg.MODEL.ECOG:
-                ecog_test = [
-                    sample_dict_test["ecog_batch_all"][i].to(device).float()
-                    for i in range(len(sample_dict_test["ecog_batch_all"]))
-                ]
-                ecog_raw_test = [
-                    sample_dict_test["ecog_raw_batch_all"][i].to(device).float()
-                    for i in range(len(sample_dict_test["ecog_raw_batch_all"]))
-                ]
-                mask_prior_test = [
-                    sample_dict_test["mask_all"][i].to(device).float()
-                    for i in range(len(sample_dict_test["mask_all"]))
-                ]
-                mni_coordinate_test = (
-                    sample_dict_test["mni_coordinate_all"].to(device).float()
-                )
-            else:
-                ecog_test = None
-                ecog_raw_test = None
-                mask_prior_test = None
-                mni_coordinate_test = None
-            sample_spec_mel_test = (
-                sample_dict_test["spkr_batch_all"].to(device).float()
-                if cfg.MODEL.DO_MEL_GUIDE
-                else None
-            )
-            on_stage_test = sample_dict_test["on_stage_batch_all"].to(device).float()
-            on_stage_wider_test = (
-                sample_dict_test["on_stage_wider_batch_all"].to(device).float()
-            )
-            # sample = next(make_dataloader(cfg, logger, dataset, 32, local_rank))
-            # sample = (sample / 127.5 - 1.)
-    # import pdb; pdb.set_trace()
+
     duomask = True
     # model.eval()
     # Lrec = model(sample_spec_test, x_denoise = sample_spec_denoise_test,x_mel = sample_spec_mel_test,ecog=ecog_test if cfg.MODEL.ECOG else None, mask_prior=mask_prior_test if cfg.MODEL.ECOG else None, on_stage = on_stage_test,on_stage_wider = on_stage_wider_test, ae = not cfg.MODEL.ECOG, tracker = tracker_test, encoder_guide=cfg.MODEL.W_SUP,pitch_aug=False,duomask=duomask,mni=mni_coordinate_test,debug = False,x_amp=sample_spec_amp_test,hamonic_bias = False)
@@ -959,28 +852,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 wave_orig = reshape_multi_batch(
                     wave_orig, batchsize=batch_size, patient_len=patient_len
                 )
-                if not cfg.DATASET.DENSITY == "LD":
-                    sample_voice = (
-                        sample_dict_train["voice_re_batch_all"].to(device).float()
-                    )
-                    sample_unvoice = (
-                        sample_dict_train["unvoice_re_batch_all"].to(device).float()
-                    )
-                    sample_semivoice = (
-                        sample_dict_train["semivoice_re_batch_all"].to(device).float()
-                    )
-                    sample_plosive = (
-                        sample_dict_train["plosive_re_batch_all"].to(device).float()
-                    )
-                    sample_fricative = (
-                        sample_dict_train["fricative_re_batch_all"].to(device).float()
-                    )
-                else:
-                    sample_voice = None
-                    sample_unvoice = None
-                    sample_semivoice = None
-                    sample_plosive = None
-                    sample_fricative = None
+
 
                 if cfg.MODEL.WAVE_BASED:
                     # x_orig = wave2spec(wave_orig,n_fft=cfg.MODEL.N_FFT,noise_db=cfg.MODEL.NOISE_DB,max_db=cfg.MODEL.MAX_DB)
@@ -996,14 +868,10 @@ def train(cfg, logger, local_rank, world_size, distributed):
                         .to(device)
                         .float()
                     )
-                    x_orig_denoise = (
-                        sample_dict_train["wave_spec_re_denoise_batch_all"]
-                        .to(device)
-                        .float()
-                    )
+                    x_orig_denoise = None  # 
                 else:
                     x_orig = sample_dict_train["spkr_re_batch_all"].to(device).float()
-                    x_orig_denoise = None  # sample_dict_train['wave_spec_re_denoise_batch_all'].to(device).float()
+                    x_orig_denoise = None  # 
                 x_orig = reshape_multi_batch(
                     x_orig, batchsize=batch_size, patient_len=patient_len
                 )
@@ -1479,13 +1347,11 @@ if __name__ == "__main__":
     if args_.trainsubject != "":
         train_subject_info = args_.trainsubject.split(",")
     else:
-        train_subject_info = args_.subject.split(
-            ","
-        )  # cfg.DATASET.SUBJECT #already splitted
+        train_subject_info = args_.subject.split(",")
     if args_.testsubject != "":
         test_subject_info = args_.testsubject.split(",")
     else:
-        test_subject_info = args_.subject.split(",")  # cfg.DATASET.SUBJECT
+        test_subject_info = args_.subject.split(",")
 
     with open("configs/AllSubjectInfo.json", "r") as rfile:
         allsubj_param = json.load(rfile)

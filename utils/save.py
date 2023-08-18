@@ -152,11 +152,11 @@ def voicing_coloring(sample, amplitude):
 
 
 def color_spec(spec, components, n_mels):
-    clrs = ["g", "y", "b", "m", "c"]
-    f0 = (components["f0"] * n_mels).int().clamp(min=0, max=n_mels - 1)
-    formants_freqs = (
-        (components["freq_formants_hamon"] * n_mels).int().clamp(min=0, max=n_mels - 1)
-    )
+    #clrs = ["g", "y", "b", "m", "c"]
+    #f0 = (components["f0"] * n_mels).int().clamp(min=0, max=n_mels - 1)
+    #formants_freqs = (
+    #    (components["freq_formants_hamon"] * n_mels).int().clamp(min=0, max=n_mels - 1)
+    #)
     sample_in = spec
     sample_in_color_voicing = sample_in.clone()
     sample_in_color_voicing = voicing_coloring(
@@ -196,7 +196,10 @@ def subfigure_plot(
         "tab:brown",
         "tab:cyan",
     ]
-
+    for key in components.keys():
+        if not isinstance(components[key], torch.Tensor):
+            components[key] = torch.Tensor(components[key])#.to(device)
+    
     if formant_line:
 
         ax.imshow(
@@ -204,42 +207,55 @@ def subfigure_plot(
             vmin=0.0,
             vmax=1.0,
         )
-        f0 = (components["f0"] * n_mels).clamp(min=0, max=n_mels - 1)
-        f0_hz = (components["f0_hz"]).clamp(min=0)
-        formants_freqs = (components["freq_formants_" + which_formant] * n_mels).clamp(
-            min=0, max=n_mels - 1
-        )
+        try:
+            f0 = (components["f0"] * n_mels).clamp(min=0, max=n_mels - 1)
+        except:
+            f0 = np.clip(components["f0"] * n_mels, a_min=0, a_max=n_mels - 1)
+        try:
+            f0_hz = (components["f0_hz"]).clamp(min=0)
+        except:
+            f0_hz = np.clip(components["f0_hz"], a_min=0, a_max=None)
+        try:
+            formants_freqs = (components["freq_formants_" + which_formant] * n_mels).clamp(
+            min=0, max=n_mels - 1)
+        except:
+            formants_freqs = np.clip(components["freq_formants_" + which_formant] * n_mels,\
+                a_min=0, a_max=n_mels - 1)
         formants_freqs_hz = components["freq_formants_" + which_formant + "_hz"]
         if ecog is not None:
-            f0_ecog = (ecog["f0"] * n_mels).clamp(min=0, max=n_mels - 1)
+            #f0_ecog = (ecog["f0"] * n_mels).clamp(min=0, max=n_mels - 1)
             f0_hz_ecog = (ecog["f0_hz"]).clamp(min=0)
 
         if linear:
-            f0 = hz2ind(f0_hz, n_fft).clamp(min=0, max=n_fft - 1)
+            try:
+                f0 = hz2ind(f0_hz, n_fft).clamp(min=0, max=n_fft - 1)
+            except:
+                f0 = np.clip(hz2ind(f0_hz, n_fft), a_min=0, a_max=n_fft - 1)
             if ecog is not None:
                 f0_ecog = hz2ind(f0_hz_ecog, n_fft).clamp(min=0, max=n_fft - 1)
+        try:
+            f0 = f0.squeeze().detach().cpu().numpy()
+        except:
+            pass
         ax.plot(
-            f0.squeeze().detach().cpu().numpy(),
+            f0.ravel(),
             color="tab:red",
             linewidth=1,
             label="f0",
         )
         for i in range(formants_freqs.shape[1]):
-            alpha = (
-                components["amplitude_formants_" + which_formant][:, i]
-                .squeeze()
-                .detach()
-                .cpu()
-                .numpy()
-            )
+            try:
+                alphatmp = components["amplitude_formants_" + which_formant][:, i].squeeze().detach().cpu().numpy()
+            except:
+                alphatmp = components["amplitude_formants_" + which_formant][:, i].ravel()
+            alpha = alphatmp
             if linear:
+                try:
+                    formants_freqs_hztmp =formants_freqs_hz[:, i].squeeze().detach().cpu().numpy()
+                except:
+                    formants_freqs_hztmp =formants_freqs_hz[:, i].ravel()
                 ax.plot(
-                    hz2ind(formants_freqs_hz[:, i], n_fft)
-                    .clamp(min=0, max=n_fft - 1)
-                    .squeeze()
-                    .detach()
-                    .cpu()
-                    .numpy(),
+                    hz2ind(formants_freqs_hztmp, n_fft),
                     color=clrs[i],
                     linewidth=2,
                     label="f" + str(i + 1),
@@ -373,7 +389,8 @@ def subfigure_plot(
         # ax.legend()
     else:
         if title == "loudness":
-            loudness = torchaudio.transforms.AmplitudeToDB()(components["loudness"])
+            
+            loudness = torchaudio.transforms.AmplitudeToDB()(torch.Tensor(components["loudness"]))
             if ecog is not None:
                 loudness_ecog = torchaudio.transforms.AmplitudeToDB()(ecog["loudness"])
             loudness = (loudness + 100) * 2
@@ -591,6 +608,10 @@ def save_sample(
                 gender=gender_in,
                 onstage=on_stage_wider[i : np.minimum(i + 1, sample.shape[0])],
             )
+            for key in components.keys():
+                if not isinstance(components[key], torch.Tensor):
+                   components[key] = torch.Tensor(components)
+            
             rec = decoder(components, onstage=on_stage_in)
             decoder.return_wave = True
             rec_denoise, rec_denoise_wave = decoder(
@@ -828,7 +849,11 @@ def save_sample(
         if ecog_encoder is not None or encoder2 is not None:
             resultsample = torch.cat([sample_in_all, rec_all, rec_ecog_all], dim=0)
         else:
-            resultsample = torch.cat([sample_in_all, rec_all], dim=0)
+            try:
+                resultsample = torch.cat([sample_in_all, rec_all], dim=0)
+            except:
+                rec_all = F.pad(rec_all, (0,0,2,0 ), mode='replicate')
+                resultsample = torch.cat([sample_in_all, rec_all], dim=0)
         resultsample = resultsample.transpose(-2, -1)
         # import pdb;pdb.set_trace()
         if mode == "train":

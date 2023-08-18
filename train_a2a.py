@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+DEBUG = 1
 
+import time
 import torch
 from torch import optim as optim
 import torch.utils.data
@@ -30,7 +32,7 @@ from utils.defaults import get_cfg_defaults
 from utils.save import save_sample
 import itertools
 device = "cuda" if torch.cuda.is_available() else "cpu"
-DEBUG = 0
+
 parser = argparse.ArgumentParser(description="formant")
 parser.add_argument(
     "-c",
@@ -264,9 +266,6 @@ args_ = parser.parse_args()
 
 with open("configs/AllSubjectInfo.json", "r") as rfile:
     allsubj_param = json.load(rfile)
-
-# with open('train_param.json','r') as rfile:
-#    param = json.load(rfile)
 with open("train_param_e2a_production.json", "r") as rfile:
     param = json.load(rfile)
 
@@ -459,14 +458,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
         if hasattr(model, "decoder_mel"):
             decoder_mel = model.decoder_mel
 
-    # count_param_override.print = lambda a: logger.info(a)
-
-    # logger.info("Trainable parameters generator:")
-    # count_parameters(decoder)
-
-    # logger.info("Trainable parameters discriminator:")
-    # count_parameters(encoder)
-
     arguments = dict()
     arguments["iteration"] = 0
 
@@ -559,23 +550,16 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
     patient_len = len(train_subject_info)
 
-    if args_.pretrained_model_dir is "":
-        if (
-            allsubj_param["Subj"][train_subject_info[0]]["Gender"] == "Female"
-        ):  # cfg.DATASET.SUBJECT is a list
-            load_model_dir = (
-                "./training_artifacts/742_han5amppowerloss_alphasup/model_epoch31.pth"
-            )
-        elif allsubj_param["Subj"][train_subject_info[0]]["Gender"] == "Male":
-            load_model_dir = "./training_artifacts/798_loudnesscomp_han5_alphasup3_dummyf_learnedmask_nfiltersample20/model_epoch59.pth"
+    if args_.pretrained_model_dir == "None":
+        pass
     else:
         load_model_dir = args_.pretrained_model_dir
-    extra_checkpoint_data = checkpointer.load(
-        ignore_last_checkpoint=True if DEBUG else cfg.IGNORE_LOADING,
-        ignore_auxiliary=True,
-        file_name=load_model_dir,
-    )
-    arguments.update(extra_checkpoint_data)
+        extra_checkpoint_data = checkpointer.load(
+            ignore_last_checkpoint=True if DEBUG else cfg.IGNORE_LOADING,
+            ignore_auxiliary=True,
+            file_name=load_model_dir,
+        )
+        arguments.update(extra_checkpoint_data)
     print(
         "supervisions: args_.formant_supervision, args_.pitch_supervision, args_.intensity_supervision",
         args_.formant_supervision,
@@ -610,7 +594,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
         )
 
     dataset_test_all = {}
-    # print ('test_sub infor', test_subject_info)
     for subject in test_subject_info:
         dataset_test_all[subject] = TFRecordsDataset(
                 cfg,
@@ -631,9 +614,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 pitch_label=pitch_label,
                 intensity_label=intensity_label,
             )
-
-    # allow for LD!
-    # noise_dist = dataset.noise_dist
     noise_dist = torch.from_numpy(dataset.noise_dist).to(device).float()
     if cfg.MODEL.BGNOISE_FROMDATA:
         model_s.noise_dist_init(noise_dist)
@@ -642,8 +622,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
         else:
             model.noise_dist_init(noise_dist)
     rnd = np.random.RandomState(3456)
-    # latents = rnd.randn(len(dataset_test.dataset), cfg.MODEL.LATENT_SPACE_SIZE)
-    # samplez = torch.tensor(latents).float().cuda()
     x_amp_from_denoise = False
 
     (
@@ -697,9 +675,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
             cfg.DATASET.MAX_RESOLUTION_LEVEL, len(dataset_test_all[subject].dataset)
         )
         sample_dict_test = next(iter(dataset_test_all[subject].iterator))
-        # sample_region_test_all[subject] = np.asarray(sample_dict_test['regions_all'])[:,0]
-        # sample_dict_test = concate_batch(sample_dict_test)
-
         if cfg.DATASET.PROD:
             sample_wave_test_all[subject] = (
                 sample_dict_test["wave_re_batch_all"].to(device).float()
@@ -766,8 +741,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
             on_stage_wider_test_all[subject] = (
                 sample_dict_test["on_stage_wider_re_batch_all"].to(device).float()
             )
-            # sample = next(make_dataloader(cfg, logger, dataset, 32, local_rank))
-            # sample = (sample / 127.5 - 1.)
             hann_win = torch.hann_window(21, periodic=False).reshape([1, 1, 21, 1])
             hann_win = hann_win / hann_win.sum()
             sample_spec_test2_all[subject] = to_db(
@@ -782,69 +755,19 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
 
     duomask = True
-    # model.eval()
-    # Lrec = model(sample_spec_test, x_denoise = sample_spec_denoise_test,x_mel = sample_spec_mel_test,ecog=ecog_test if cfg.MODEL.ECOG else None, mask_prior=mask_prior_test if cfg.MODEL.ECOG else None, on_stage = on_stage_test,on_stage_wider = on_stage_wider_test, ae = not cfg.MODEL.ECOG, tracker = tracker_test, encoder_guide=cfg.MODEL.W_SUP,pitch_aug=False,duomask=duomask,mni=mni_coordinate_test,debug = False,x_amp=sample_spec_amp_test,hamonic_bias = False)
-    # save_sample(sample_spec_test,ecog_test,mask_prior_test,mni_coordinate_test,encoder,decoder,ecog_encoder if cfg.MODEL.ECOG else None,x_denoise=sample_spec_denoise_test,x_mel = sample_spec_mel_test,decoder_mel=decoder_mel if cfg.MODEL.DO_MEL_GUIDE else None,epoch=0,label=sample_label_test,mode='test',path=cfg.OUTPUT_DIR,tracker = tracker_test,linear=cfg.MODEL.WAVE_BASED,n_fft=cfg.MODEL.N_FFT,duomask=True)
     n_iter = 0
 
     epoch = 0
 
-    # debug
-
-    # model.eval()
-    # if epoch % 1 == 0:
-    #    checkpointer.save("model_epoch%d" % epoch)
-    # first mode is test
-    #    for subject in test_subject_info:
-    #        save_sample(cfg, sample_spec_test2_all[subject], sample_spec_test_all[subject],ecog_test_all[subject],mask_prior_test_all[subject],mni_coordinate_test_all[subject],encoder,decoder,\
-    #            ecog_encoder if cfg.MODEL.ECOG else None,encoder2, x_denoise = sample_spec_denoise_test_all[subject],x_mel = sample_spec_mel_test_all[subject],\
-    #        decoder_mel=decoder_mel if cfg.MODEL.DO_MEL_GUIDE else None, epoch=epoch, label = sample_label_test_all[subject], mode='test', tracker = tracker_test,\
-    #            path=cfg.OUTPUT_DIR, linear=cfg.MODEL.WAVE_BASED, n_fft=cfg.MODEL.N_FFT, duomask=duomask, x_amp=sample_spec_amp_test_all[subject],\
-    #                gender=gender_test_all[subject],sample_wave=sample_wave_test_all[subject],sample_wave_denoise=sample_wave_denoise_test_all[subject],on_stage_wider = on_stage_test_all[subject],suffix=subject)
-
-    # if epoch%1==0:
-    # first mode is test
-    #    save_sample(cfg, sample_spec_test2, sample_spec_test,ecog_test,mask_prior_test,mni_coordinate_test,encoder,decoder,\
-    #       ecog_encoder if cfg.MODEL.ECOG else None,encoder2, x_denoise=sample_spec_denoise_test,x_mel = sample_spec_mel_test,\
-    #           decoder_mel=decoder_mel if cfg.MODEL.DO_MEL_GUIDE else None,epoch=epoch,label=sample_label_test,mode='test',,tracker=tracker_test\
-    #                path=cfg.OUTPUT_DIR, linear=cfg.MODEL.WAVE_BASED,n_fft=cfg.MODEL.N_FFT,duomask=duomask,x_amp=sample_spec_amp_test,\
-    #                   gender=gender_test,sample_wave=sample_wave_test,sample_wave_denoise=sample_wave_denoise_test,on_stage_wider = on_stage_test)
-    # save_sample(x,ecog,mask_prior,mni_coordinate,encoder,decoder,ecog_encoder if cfg.MODEL.ECOG else None,\
-    #    x_denoise=x_orig_denoise,x_mel = sample_spec_mel_test,decoder_mel=decoder_mel if cfg.MODEL.DO_MEL_GUIDE else None,\
-    #       epoch=epoch,label=labels,mode='train',path=cfg.OUTPUT_DIR,tracker = tracker,linear=cfg.MODEL.WAVE_BASED,n_fft=cfg.MODEL.N_FFT,\
-    #            duomask=duomask,x_amp=x_orig_amp)
-
-    # e2a
-    # save_sample(cfg,sample_spec_test2,sample_spec_test,ecog_test,mask_prior_test,mni_coordinate_test,encoder,decoder,ecog_encoder, encoder2,\
-    # x_denoise=sample_spec_denoise_test,x_mel = sample_spec_mel_test,decoder_mel=decoder_mel if cfg.MODEL.DO_MEL_GUIDE else None,epoch=epoch,\
-    # label=sample_label_test,mode='test',path=cfg.OUTPUT_DIR,tracker = tracker_test,linear=cfg.MODEL.WAVE_BASED,n_fft=cfg.MODEL.N_FFT,\
-    # duomask=duomask,x_amp=sample_spec_amp_test,gender=gender_test,sample_wave=sample_wave_test,\
-    # sample_wave_denoise=sample_wave_denoise_test,on_stage_wider = on_stage_test,auto_regressive=auto_regressive_flag,seq_out_start=initial)
-    # save_sample(cfg,x_orig2,x,ecog,mask_prior,mni_coordinate,encoder,decoder,ecog_encoder, encoder2,x_denoise=x_orig_denoise,\
-    # x_mel = sample_spec_mel_test,decoder_mel=decoder_mel if cfg.MODEL.DO_MEL_GUIDE else None,epoch=epoch,label=labels,mode='train',\
-    # path=cfg.OUTPUT_DIR,tracker = tracker,linear=cfg.MODEL.WAVE_BASED,n_fft=cfg.MODEL.N_FFT,duomask=duomask,x_amp=x_orig_amp,\
-    # gender=gender_train,on_stage_wider = on_stage,auto_regressive=auto_regressive_flag,seq_out_start=initial)
-    """
-    for subject in test_subject_info:
-        save_sample(cfg, sample_spec_test2_all[subject], sample_spec_test_all[subject],ecog_test_all[subject],mask_prior_test_all[subject],mni_coordinate_test_all[subject],encoder,decoder,\
-            ecog_encoder if cfg.MODEL.ECOG else None,encoder2, x_denoise = sample_spec_denoise_test_all[subject],x_mel = sample_spec_mel_test_all[subject],\
-        decoder_mel=decoder_mel if cfg.MODEL.DO_MEL_GUIDE else None, epoch=epoch, label = sample_label_test_all[subject], mode='test', tracker = tracker_test,\
-            path=cfg.OUTPUT_DIR, linear=cfg.MODEL.WAVE_BASED, n_fft=cfg.MODEL.N_FFT, duomask=duomask, x_amp=sample_spec_amp_test_all[subject],\
-                gender=gender_test_all[subject],sample_wave=sample_wave_test_all[subject],sample_wave_denoise=sample_wave_denoise_test_all[subject],on_stage_wider = on_stage_test_all[subject],suffix=subject)
-    """
+    
 
     for epoch in range(cfg.TRAIN.TRAIN_EPOCHS):
-
-        # batches = make_dataloader(cfg, logger, dataset, lod2batch.get_per_GPU_batch_size(), local_rank)
         model.train()
         need_permute = False
-        epoch_start_time = time.time()
         i = 0
         batch_size = args_.batch_size
         for sample_dict_train in tqdm(iter(dataset.iterator)):
             n_iter += 1
-            # import pdb; pdb.set_trace()
-            # sample_dict_train = concate_batch(sample_dict_train)
             i += 1
             if cfg.DATASET.PROD:
 
@@ -855,7 +778,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
 
                 if cfg.MODEL.WAVE_BASED:
-                    # x_orig = wave2spec(wave_orig,n_fft=cfg.MODEL.N_FFT,noise_db=cfg.MODEL.NOISE_DB,max_db=cfg.MODEL.MAX_DB)
                     x_orig = (
                         sample_dict_train["wave_spec_re_batch_all"].to(device).float()
                     )
@@ -881,8 +803,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 x_orig_denoise = reshape_multi_batch(
                     x_orig_denoise, batchsize=batch_size, patient_len=patient_len
                 )
-                # hann_win = torch.hann_window(21,periodic=False).reshape([1,1,21,1])
-                # hann_win = hann_win/hann_win.sum()
                 if cfg.MODEL.WAVE_BASED:
                     x_orig2 = to_db(
                         F.conv2d(
@@ -891,7 +811,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
                         cfg.MODEL.NOISE_DB,
                         cfg.MODEL.MAX_DB,
                     )
-                # x_orig2 = x_orig
                 if args_.formant_supervision:
                     formant_label = (
                         sample_dict_train["formant_re_batch_all"].to(device).float()
@@ -924,8 +843,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 on_stage_wider = (
                     sample_dict_train["on_stage_wider_re_batch_all"].to(device).float()
                 )
-                # words = sample_dict_train['word_batch_all'].to(device).long()
-                # words = words.view(words.shape[0]*words.shape[1])
                 labels = sample_dict_train["label_batch_all"]
                 gender_train = sample_dict_train["gender_all"]
 
@@ -935,10 +852,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 on_stage_wider = reshape_multi_batch(
                     on_stage_wider, batchsize=batch_size, patient_len=patient_len
                 )
-                # labels = reshape_multi_batch(labels, batchsize = batch_size, patient_len = patient_len)
-                # print (labels)
                 labels = list(itertools.chain(labels))
-                # print (labels)
                 gender_train = reshape_multi_batch(
                     gender_train, batchsize=batch_size, patient_len=patient_len
                 )
@@ -969,6 +883,10 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     x_mel = reshape_multi_batch(
                         x_mel, batchsize=batch_size, patient_len=patient_len
                     )
+
+                sample_voice, sample_unvoice, sample_semivoice, sample_plosive, sample_fricative = \
+                None,None,None,None,None
+                
             else:
                 wave_orig = sample_dict_train["wave_batch_all"].to(device).float()
                 if not cfg.DATASET.DENSITY == "LD":
@@ -987,6 +905,9 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     sample_fricative = (
                         sample_dict_train["fricative_batch_all"].to(device).float()
                     )
+                else:
+                    sample_voice, sample_unvoice, sample_semivoice, sample_plosive, sample_fricative = \
+                        None,None,None,None,None
                 if cfg.MODEL.WAVE_BASED:
                     # x_orig = wave2spec(wave_orig,n_fft=cfg.MODEL.N_FFT,noise_db=cfg.MODEL.NOISE_DB,max_db=cfg.MODEL.MAX_DB)
                     x_orig = sample_dict_train["wave_spec_batch_all"].to(device).float()
@@ -1008,8 +929,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     x_orig = sample_dict_train["spkr_batch_all"].to(device).float()
                     x_orig_denoise = None  # sample_dict_train['wave_spec_denoise_batch_all'].to(device).float()
 
-                # hann_win = torch.hann_window(21,periodic=False).reshape([1,1,21,1])
-                # hann_win = hann_win/hann_win.sum()
                 x_orig2 = to_db(
                     F.conv2d(
                         x_orig_amp.transpose(-2, -1), hann_win, padding=[10, 0]
@@ -1017,14 +936,10 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     cfg.MODEL.NOISE_DB,
                     cfg.MODEL.MAX_DB,
                 )
-                # x_orig2 = x_orig
-
                 on_stage = sample_dict_train["on_stage_batch_all"].to(device).float()
                 on_stage_wider = (
                     sample_dict_train["on_stage_wider_batch_all"].to(device).float()
                 )
-                # words = sample_dict_train['word_batch_all'].to(device).long()
-                # words = words.view(words.shape[0]*words.shape[1])
                 labels = sample_dict_train["label_batch_all"]
                 gender_train = sample_dict_train["gender_all"]
                 if cfg.MODEL.ECOG:
@@ -1049,15 +964,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     if cfg.MODEL.DO_MEL_GUIDE
                     else None
                 )
-            # x.requires_grad = True
-            # apply_cycle = cfg.MODEL.CYCLE and True
-            # apply_w_classifier = cfg.MODEL.W_CLASSIFIER and True
-            # apply_gp = True
-            # apply_ppl = cfg.MODEL.APPLY_PPL and True
-            # apply_ppl_d = cfg.MODEL.APPLY_PPL_D and True
-            # apply_encoder_guide = (cfg.FINETUNE.ENCODER_GUIDE or cfg.MODEL.W_SUP) and True
-            # apply_sup = cfg.FINETUNE.SPECSUP
-            # print ('train spec', x.shape)
+
 
             if cfg.MODEL.ECOG:
                 optimizer.zero_grad()
@@ -1067,7 +974,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     ecog=ecog,
                     x_denoise=x_orig_denoise,
                     x_mel=x_mel,
-                    mask_prior=mask_prior,
                     on_stage=on_stage,
                     on_stage_wider=on_stage_wider,
                     gender=gender_train,
@@ -1080,12 +986,8 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     tracker=tracker,
                     encoder_guide=cfg.MODEL.W_SUP,
                     duomask=duomask,
-                    mni=mni_coordinate,
                     x_amp=x_orig_amp,
                 )
-                # print ('tracker',tracker,tracker.tracks)
-                # for key in ['Lae_a','Lae_a_l2','Lae_db','Lae_db_l2','Lloudness','Lae_denoise','Lamp','Lae','Lexp','Lf0','Ldiff']:
-                #    print ('tracker, ',key, tracker.tracks[key].mean(dim=0))
                 ecog_key_list = [
                     "Lae_a",
                     "Lae_a_l2",
@@ -1099,26 +1001,16 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     "Lf0",
                     "Ldiff",
                 ]
-                # if n_iter %10==0:
-                #    #print ('write tensorboard')
-                #    writer.add_scalars('data/loss_group', {key: tracker.tracks[key].mean(dim=0) for key in ecog_key_list}, n_iter)
-                #    for key in ecog_key_list:
-                #        writer.add_scalar('data/'+key, tracker.tracks[key].mean(dim=0), n_iter)
-                # pass #log in tensorboard later!!
-                # tracker Lae_a: 0.0536877, Lae_a_l2: 0.0538647, Lae_db: 0.1655398, Lae_db_l2: 0.1655714, Lloudness: 1.0384552, Lae_denoise: 0.0485827, Lamp: 0.0000148, Lae: 2.1787138, Lexp: -1.9956266, Lf0: 0.0000000, Ldiff: 0.0568467
                 (Lrec).backward()
                 optimizer.step()
             else:
                 n_iter_pass = n_iter if n_iter % 1000 == 1 else 0
                 optimizer.zero_grad()
-                # print ('tracker',tracker,tracker.tracks)
                 Lrec, tracker = model(
-                    spec2=x_orig2,
                     spec=x,
                     x_denoise=x_orig_denoise,
                     x_mel=x_mel,
                     ecog=ecog,
-                    mask_prior=None,
                     on_stage=on_stage,
                     on_stage_wider=on_stage_wider,
                     ae=True,
@@ -1127,7 +1019,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     pitch_aug=False,
                     gender=gender_train,
                     duomask=duomask,
-                    mni=mni_coordinate,
                     debug=False,
                     x_amp=x_orig_amp,
                     hamonic_bias=False,
@@ -1144,38 +1035,16 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     n_iter=n_iter_pass,
                     save_path=cfg.OUTPUT_DIR,
                 )  # epoch<2)
-                # if DEBUG:
-                #    if n_iter % 50 == 0:
-                #        print (tracker.register_means(n_iter))
-                # if n_iter % 500 == 0:
-                #        print (tracker.register_means(n_iter))
-                # print ('tracker',tracker,tracker.tracks)
-                # for key in ['Lae_a','Lae_a_l2','Lae_db','Lae_db_l2','Lloudness','Lae_denoise','Lamp','Lae','Lexp','Lf0','Ldiff']:
-                # print ('tracker, ',key, tracker.tracks[key].mean(dim=0))
-                # ecog_key_list = ['Lae_a','Lae_a_l2','Lae_db','Lae_db_l2','Lae_denoise','Lamp','Lae','Lexp','Lf0','Ldiff']#'Lloudness',
-                # if n_iter %10==0:
-                # print ('write tensorboard')
-                #    writer.add_scalars('data/loss_group', {key: tracker.tracks[key].mean(dim=0) for key in ecog_key_list}, n_iter)
-                #    for key in ecog_key_list:
-                #        writer.add_scalar('data/'+key, tracker.tracks[key].mean(dim=0), n_iter)
                 (Lrec).backward()
                 optimizer.step()
 
             betta = 0.5 ** (cfg.TRAIN.BATCH_SIZE / (10 * 1000.0))
             model_s.lerp(model, betta, w_classifier=cfg.MODEL.W_CLASSIFIER)
-            # tracker.register_means(epoch)
-            epoch_end_time = time.time()
-            per_epoch_ptime = epoch_end_time - epoch_start_time
-
-            # debug save train
             if n_iter % 1000000 == 1:
                 save_sample(
                     cfg,
-                    x_orig2,
                     x,
                     ecog,
-                    mask_prior,
-                    mni_coordinate,
                     encoder,
                     decoder,
                     ecog_encoder if cfg.MODEL.ECOG else None,
@@ -1196,37 +1065,22 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     on_stage_wider=on_stage,
                 )
 
-            # if i >= 5:
-            #    break
-            # print ('test save sample')
-            # save_sample(sample_spec_test,ecog_test,mask_prior_test,mni_coordinate_test,encoder,decoder,ecog_encoder if cfg.MODEL.ECOG else None,x_denoise=sample_spec_denoise_test,x_mel = sample_spec_mel_test,decoder_mel=decoder_mel if cfg.MODEL.DO_MEL_GUIDE else None,epoch=epoch,label=sample_label_test,mode='test',path=cfg.OUTPUT_DIR,tracker = tracker_test,linear=cfg.MODEL.WAVE_BASED,n_fft=cfg.MODEL.N_FFT,duomask=duomask,x_amp=sample_spec_amp_test)
-            # save_sample(x,ecog,mask_prior,mni_coordinate,encoder,decoder,ecog_encoder if cfg.MODEL.ECOG else None,x_denoise=x_orig_denoise,x_mel = sample_spec_mel_test,decoder_mel=decoder_mel if cfg.MODEL.DO_MEL_GUIDE else None,epoch=epoch,label=labels,mode='train',path=cfg.OUTPUT_DIR,tracker = tracker,linear=cfg.MODEL.WAVE_BASED,n_fft=cfg.MODEL.N_FFT,duomask=duomask,x_amp=x_orig_amp)
-            # print ('finish')
-
-        # implement backtrack
-
         if local_rank == 0:
-            # print(2**(torch.tanh(model.encoder.formant_bandwitdh_slop)))
-
             if len(test_subject_info) == 1:
                 save_inter = 5
             else:
                 save_inter = 2
             if epoch % save_inter == 0:
                 checkpointer.save("model_epoch%d" % epoch)
-                # first mode is test
 
             if epoch % save_inter == 0:
                 for subject in test_subject_info:
-                    # print ('epoch',epoch)
                     model.eval()
                     model(
-                        sample_spec_test2_all[subject],
                         sample_spec_test_all[subject],
                         x_denoise=sample_spec_denoise_test_all[subject],
                         x_mel=sample_spec_mel_test_all[subject],
                         ecog=ecog_test if cfg.MODEL.ECOG else None,
-                        mask_prior=mask_prior_test if cfg.MODEL.ECOG else None,
                         on_stage=on_stage_test_all[subject],
                         on_stage_wider=on_stage_wider_test_all[subject],
                         ae=not cfg.MODEL.ECOG,
@@ -1241,17 +1095,13 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     )
                     save_sample(
                         cfg,
-                        sample_spec_test2_all[subject],
                         sample_spec_test_all[subject],
                         ecog_test_all[subject],
-                        mask_prior_test_all[subject],
-                        mni_coordinate_test_all[subject],
                         encoder,
                         decoder,
                         ecog_encoder if cfg.MODEL.ECOG else None,
                         encoder2,
-                        x_denoise=sample_spec_denoise_test_all[subject],
-                        x_mel=sample_spec_mel_test_all[subject],
+                        x_denoise=None,#sample_spec_denoise_test_all[subject],
                         decoder_mel=decoder_mel if cfg.MODEL.DO_MEL_GUIDE else None,
                         epoch=epoch,
                         label=sample_label_test_all[subject],
@@ -1264,41 +1114,20 @@ def train(cfg, logger, local_rank, world_size, distributed):
                         x_amp=sample_spec_amp_test_all[subject],
                         gender=gender_test_all[subject],
                         sample_wave=sample_wave_test_all[subject],
-                        sample_wave_denoise=sample_wave_denoise_test_all[subject],
+                        sample_wave_denoise=None,#sample_wave_denoise_test_all[subject],
                         on_stage_wider=on_stage_test_all[subject],
                         suffix=subject,
                     )
 
-                # save_sample(cfg,sample_spec_test2_all[subject],sample_spec_test_all[subject],\
-                # ecog_test_all[subject],mask_prior_test_all[subject],mni_coordinate_test_all[subject],\
-                # encoder_all[subject],decoder_all[subject],ecog_encoder_shared if hasattr(model_all[subject],'ecog_encoder') else None,\
-                # encoder2 if hasattr(model_all[subject],'encoder2') else None,x_denoise=sample_spec_denoise_test_all[subject],\
-                # x_mel = sample_spec_mel_test_all[subject],decoder_mel=decoder_mel if cfg.MODEL.DO_MEL_GUIDE else None,epoch=epoch,\
-                # label=sample_label_test_all[subject],mode='test',path=cfg.OUTPUT_DIR,tracker = tracker_test ,\
-                # linear=cfg.MODEL.WAVE_BASED,n_fft=cfg.MODEL.N_FFT,duomask=duomask,x_amp=sample_spec_amp_test_all[subject],\
-                # gender=gender_test_all[subject],sample_wave=sample_wave_test_all[subject],sample_wave_denoise=sample_wave_denoise_test_all[subject],\
-                # on_stage_wider = on_stage_test_all[subject],auto_regressive=auto_regressive_flag,seq_out_start=initial,suffix=subject)
-                # save_sample(cfg,sample_spec_test2,sample_spec_test,ecog_test,mask_prior_test,mni_coordinate_test,encoder,decoder,ecog_encoder, encoder2,\
-                # x_denoise=sample_spec_denoise_test,x_mel = sample_spec_mel_test,decoder_mel=decoder_mel if cfg.MODEL.DO_MEL_GUIDE else None,epoch=epoch,\
-                # label=sample_label_test,mode='test',path=cfg.OUTPUT_DIR,tracker = tracker_test,linear=cfg.MODEL.WAVE_BASED,n_fft=cfg.MODEL.N_FFT,\
-                # duomask=duomask,x_amp=sample_spec_amp_test,gender=gender_test,sample_wave=sample_wave_test,\
-                # sample_wave_denoise=sample_wave_denoise_test,on_stage_wider = on_stage_test,auto_regressive=auto_regressive_flag,\
-                # seq_out_start=initial)
-
-                # print ('epoch',epoch)
                 save_sample(
                     cfg,
-                    x_orig2,
                     x,
                     ecog,
-                    mask_prior,
-                    mni_coordinate,
                     encoder,
                     decoder,
                     ecog_encoder if cfg.MODEL.ECOG else None,
                     encoder2,
                     x_denoise=x_orig_denoise,
-                    x_mel=x_mel,
                     decoder_mel=decoder_mel if cfg.MODEL.DO_MEL_GUIDE else None,
                     tracker=tracker,
                     epoch=epoch,
@@ -1313,22 +1142,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     on_stage_wider=on_stage,
                 )
 
-            #    writer.add_audio('reconaudio', reconaudio, n_iter, sample_rate=16000)
-    # writer.export_scalars_to_json(cfg.OUTPUT_DIR+"/all_scalars.json")
-    # writer.close()
-
-    # e2a
-    # save_sample(cfg,sample_spec_test2,sample_spec_test,ecog_test,mask_prior_test,mni_coordinate_test,encoder,decoder,ecog_encoder, encoder2,\
-    # x_denoise=sample_spec_denoise_test,x_mel = sample_spec_mel_test,decoder_mel=decoder_mel if cfg.MODEL.DO_MEL_GUIDE else None,epoch=epoch,\
-    # label=sample_label_test,mode='test',path=cfg.OUTPUT_DIR,tracker = tracker_test,linear=cfg.MODEL.WAVE_BASED,n_fft=cfg.MODEL.N_FFT,\
-    # duomask=duomask,x_amp=sample_spec_amp_test,gender=gender_test,sample_wave=sample_wave_test,\
-    # sample_wave_denoise=sample_wave_denoise_test,on_stage_wider = on_stage_test,auto_regressive=auto_regressive_flag,seq_out_start=initial)
-    # save_sample(cfg,x_orig2,x,ecog,mask_prior,mni_coordinate,encoder,decoder,ecog_encoder, encoder2,x_denoise=x_orig_denoise,\
-    # x_mel = sample_spec_mel_test,decoder_mel=decoder_mel if cfg.MODEL.DO_MEL_GUIDE else None,epoch=epoch,label=labels,mode='train',\
-    # path=cfg.OUTPUT_DIR,tracker = tracker,linear=cfg.MODEL.WAVE_BASED,n_fft=cfg.MODEL.N_FFT,duomask=duomask,x_amp=x_orig_amp,\
-    # gender=gender_train,on_stage_wider = on_stage,auto_regressive=auto_regressive_flag,seq_out_start=initial)
-
-
 if __name__ == "__main__":
     gpu_count = torch.cuda.device_count()
     cfg = get_cfg_defaults()
@@ -1341,9 +1154,6 @@ if __name__ == "__main__":
     config_TRAIN_OPTIMIZER_BETAS = (0.9, 0.999)
     config_TRAIN_WEIGHT_DECAY = 0.05  # 0.05
     config_TRAIN_BASE_LR = 5e-4  # 1e-3#5e-4
-    # if args.modeldir !='':
-    #    cfg.OUTPUT_DIR = args.modeldir
-
     if args_.trainsubject != "":
         train_subject_info = args_.trainsubject.split(",")
     else:
@@ -1370,12 +1180,7 @@ if __name__ == "__main__":
     ):
         config_file = os.path.join("configs", config_file)
     cfg.merge_from_file(config_file)
-    # actually args_.config_file control the cfg!!
     args_.config_file = config_file
-    # if not specified, with use args_.subject as train and test
-
-    # print ('*'*50,'gender', Gender,config_file,cfg)
-
     run(
         train,
         cfg,

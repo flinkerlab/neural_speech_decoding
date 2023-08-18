@@ -10,7 +10,7 @@ import utils.lreq_causal as ln_c
 from utils.registry import *
 from modules.Swin3D_blocks import *
 
-
+device = 'cuda' if torch.cuda.is_available() else 'cpu' 
 def db(x, noise=-80, slope=35, powerdb=True):
     if powerdb:
         return (
@@ -581,6 +581,8 @@ class FormantSysth(nn.Module):
         return_filtershape=False,
         spec_fr=125,
         reverse_order=True,
+        quantfilename=None,
+        #'/scratch/xc1490/projects/ecog/ALAE_1023/neural_speech_decoding/data/models/869model/NY869_kmeans_model_Cluster100_Window2_6formants.pkl'
     ):
         super(FormantSysth, self).__init__()
         self.wave_fr = 16e3
@@ -665,7 +667,8 @@ class FormantSysth(nn.Module):
                 nn.init.constant_(self.dummy_a, -1.0)
 
         self.learned_mask = learned_mask
-
+        self.quantfilename = quantfilename
+        
         if learned_mask:
             if learnedbandwidth or dynamic_filter_shape:
                 self.formant_masks_hamon = LearntFormantFilterMultiple(
@@ -711,7 +714,11 @@ class FormantSysth(nn.Module):
                     dynamic=False,
                     reverse_order=reverse_order,
                 )
-
+        if quantfilename is not '':
+            print ('performing quantization')
+            self.quantizer = self.quantizer_model(quantfilename)
+        
+        
     def formant_mask(
         self,
         freq_hz,
@@ -1094,15 +1101,7 @@ class FormantSysth(nn.Module):
                 * F.softplus(self.wave_noise_amplifier)
                 * torch.sqrt(real**2 + img**2 + 1e-10)
             )
-    def quantizer_model(self,):
-        self.filename = '/scratch/xc1490/projects/ecog/ALAE_1023/neural_speech_decoding/data/models/869model/NY869_kmeans_model_Cluster100_Window2_6formants.pkl'
-        filename = self.filename
-        with open(filename,'rb') as f:
-            self.quantizer = pickle.load(f)
-    def quantization(self, components):
-        decoded_label,batchsize = self.quantizer.ezpredict(components)
-        recovered_dict = self.quantizer.ezrecover_from_label(decoded_label,batchsize)
-        return recovered_dict
+
     
     def forward(
         self,
@@ -1114,17 +1113,14 @@ class FormantSysth(nn.Module):
         n_iter=0,
         save_path="",
     ):
-        #import pdb;pdb.set_trace()
-        print ('components',components.keys())
-        components = self.quantization(components)
-        print ('quantized components',components.keys())
+
         if self.dynamic_filter_shape:
             spec_smooth = components["spec_smooth"]
         else:
             spec_smooth = None
 
         amplitudes = components["amplitudes"].unsqueeze(dim=-1)
-        amplitudes_h = components["amplitudes_h"].unsqueeze(dim=-1)
+        #amplitudes_h = components["amplitudes_h"].unsqueeze(dim=-1)
         loudness = components["loudness"].unsqueeze(dim=-1)
         f0_hz = components["f0_hz"]
         if not self.noise_from_data:
@@ -1345,119 +1341,6 @@ class FormantSysth(nn.Module):
         else:
             return speech
 
-#########quantizer model###########
-from sklearn.cluster import MiniBatchKMeans
-import pickle
-class Quantizer(MiniBatchKMeans):
-    # assume data is numpy in shape of B*T*C
-    def __init__(self,n_clusters,window,
-                init="k-means++",
-                max_iter=3000,
-                batch_size=2000,
-                tol=0.0,
-                max_no_improvement=4000,
-                n_init=20,
-                reassignment_ratio=0.5,):
-        super().__init__(n_clusters,init=init,
-                                max_iter=max_iter,
-                                batch_size=batch_size,
-                                tol=tol,
-                                max_no_improvement=max_no_improvement,
-                                n_init=n_init,
-                                reassignment_ratio=reassignment_ratio,
-                                random_state=1369,
-                                verbose=1,
-                                compute_labels=True,
-                                init_size=None)
-        self.window=window
-        self.all_keys = ['f0_hz', 'loudness', 'amplitudes', 'freq_formants_hamon_hz', 'bandwidth_formants_hamon_hz', 'amplitude_formants_hamon', 'freq_formants_noise_hz', 'bandwidth_formants_noise_hz', 'amplitude_formants_noise']
-        self.effective_dims = {'f0_hz':np.arange(0,1),
-                    'loudness':np.arange(0,1),
-                    'amplitudes':np.arange(0,1),
-                    'freq_formants_hamon_hz': np.arange(0,6), #np.arange(0,3),#
-                    'bandwidth_formants_hamon_hz': np.arange(0,6),
-                    'amplitude_formants_hamon':np.arange(0,6),
-                    'freq_formants_noise_hz':np.arange(-1,0),
-                    'bandwidth_formants_noise_hz':np.arange(-1,0),
-                    'amplitude_formants_noise':np.arange(-1,0)
-                }
-        self.effective_dims_cum = [0]+[len(self.effective_dims[key]) for key in self.all_keys] #cumulative sum of effective dims
-        self.effective_dims_cum = np.cumsum(np.array(self.effective_dims_cum))
-    def z_score(self,data,train=True):
-        # reshape data to perform cluster
-        # data: data in original shape
-        # return: cluster label
-        if train:
-            self.data_mean = data.mean(axis=(0,1),keepdims=True)
-            self.data_std = data.std(axis=(0,1),keepdims=True)
-            self.data_std[self.data_std==0] = 1
-        data =  (data - self.data_mean) / self.data_std
-        return data
-    
-    def inverse_z_score(self,data):
-        return data * self.data_std + self.data_mean
-    
-    def recover_from_label(self,labels):
-        # recover data from cluster label
-        # labels: cluster label
-        # return: data in original shape
-        return self.cluster_centers_[labels]
-
-    # def smooth_boundary(self,recovered_data, boundary): 
-    #     # TODO
-    #     # smooth the boundary of recovered data
-    #     # recovered_data: data in original shape, B*T*F
-    #     # boundary: boundary size
-    #     # return: smoothed data
-    #     batch,time,feature=recovered_data.shape
-    #     reshaped_data=recovered_data.reshape(batch,time//self.window,self.window,feature)
-    
-    def ezpredict(self,data):
-        ## predict label from dictionary input
-        data_array = np.concatenate([data[key][:,self.effective_dims[key]] for key in self.all_keys],axis=1) # B x C x T
-        data_array = np.transpose(data_array,(0,2,1)) # B x T x C
-        data_array = self.z_score(data_array,train=False)
-        batch_size = data_array.shape[0]
-        data_array = self.reshape_data(data_array)
-        decoded_labels = super().predict(data_array)
-        return decoded_labels, batch_size
-    
-    def ezrecover_from_label(self,label,batch_size):
-        ## easy recover dictionary from label, 
-        # having all postprocessing packed. 
-        # input unit, output dictionary
-        recovered_data = self.cluster_centers_[label]
-        recovered_data = self.inverse_reshape_data(recovered_data,batch_size)
-        recovered_data = self.inverse_z_score(recovered_data)
-        recovered_data = np.transpose(recovered_data,(0,2,1)) # B x C x T
-        # convert from array to dictionary
-        recovered_data_dict = {self.all_keys[i]: recovered_data[:,self.effective_dims_cum[i]:self.effective_dims_cum[i+1]] for i in range(len(self.all_keys))}
-        recovered_data_dict["amplitudes"] = np.repeat(recovered_data_dict["amplitudes"],2,axis=1)
-        recovered_data_dict["amplitudes"][:,1] = 1-recovered_data_dict["amplitudes"][:,1]
-        recovered_data_dict["freq_formants_noise_hz"] = np.concatenate([recovered_data_dict["freq_formants_hamon_hz"],recovered_data_dict["freq_formants_noise_hz"]],axis=1)
-        recovered_data_dict["bandwidth_formants_noise_hz"] = np.concatenate([recovered_data_dict["bandwidth_formants_hamon_hz"],recovered_data_dict["bandwidth_formants_noise_hz"]],axis=1)
-        noise_amplitude = np.minimum(1,recovered_data_dict["amplitude_formants_noise"].sum(axis=1,keepdims=True))
-        recovered_data_dict["amplitude_formants_noise"] = np.concatenate([(1-noise_amplitude)*recovered_data_dict["amplitude_formants_hamon"],recovered_data_dict["amplitude_formants_noise"]],axis=1)
-        return recovered_data_dict
-    
-
-    def recover_from_label(self,label):
-        recovered_data = self.cluster_centers_[label]
-        return recovered_data
-        
-    def reshape_data(self,data):
-        # segment temporal data into segment of length window,
-        # then combine window and feature dimension as a new "feature dimension" to perform cluster
-        batch,time,feature=data.shape
-        data = data[:,:time//self.window*self.window,:]
-        data=data.reshape(batch*(time//self.window),self.window*feature)
-        return data
-
-    def inverse_reshape_data(self,data, batchsize):
-        # inverse process of reshape_data
-        batch,feature=data.shape
-        data=data.reshape(batchsize,batch//batchsize*self.window,feature//self.window)
-        return data
 
 
 
@@ -2136,7 +2019,7 @@ class ECoGMappingBlock_causal(nn.Module):
             x = F.leaky_relu(self.norm1(self.conv1(x)), 0.2)
             x = F.leaky_relu(self.norm2(self.conv2(x)), 0.2)
         return x
-device = 'cuda' if torch.cuda.is_available() else 'cpu' 
+
 formant_freq_limits_diff = torch.tensor([950.,2450.,2100.]).reshape([1,3,1]).to(device) #freq difference
 formant_freq_limits_diff_low = torch.tensor([300.,300.,0.]).reshape([1,3,1]).to(device) #freq difference
 formant_freq_limits_abs = torch.tensor([950.,3400.,3800.,5000.,6000.,7000.]).reshape([1,6,1]).to(device) #freq difference

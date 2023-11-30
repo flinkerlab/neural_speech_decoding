@@ -1,6 +1,6 @@
 # Neural Speech Decoding
 
-By ...
+By Xupeng Chen, Ran Wang, Amirhossein Khalilian-Gourtani, Leyao Yu, Patricia Dugan, Daniel Friedman, Werner Doyle, Orrin Devinsky, Yao Wang, Adeen Flinker
 
 ## Introduction
 Our ECoG to Speech decoding framework is initially described in [A Neural Speech Decoding Framework Leveraging Deep Learning and Speech Synthesis](). We present a novel deep learning-based neural speech decoding framework that includes an ECoG Decoder that translates electrocorticographic (ECoG) signals from the cortex into interpretable speech parameters and a novel differentiable Speech Synthesizer that maps speech parameters to spectrograms. We develop a companion audio-to-audio auto-encoder consisting of a Speech Encoder and the same Speech Synthesizer to generate reference speech parameters to facilitate the training of the ECoG Decoder. This framework generates natural-sounding speech and is highly reproducible across a large cohort of participants (n=48). We provide two-stage training **pipeline** with visualization tools.
@@ -40,7 +40,7 @@ Prepare the data in HDF5 format, refer to the [prepare_data](notebooks/prepare_d
 Optionally, if you want to provide extra supervision for pitch and formant, please refer to the [formant_pitch_label_extraction](notebooks/formant_pitch_label_extraction.ipynb)
 
 ## Training
-Fill in the config files including `configs/a2a_production.yaml,configs/e2a_production.yaml,configs/AllSubjectInfo.json,configs/train_param_production.json` following the example of participants `NY869`
+Fill in the config files including `configs/a2a_production.yaml,configs/e2a_production.yaml,configs/AllSubjectInfo.json,configs/train_param_production.json` following the example of participants `NY742`
 
 ## Speech to Speech 
 
@@ -55,7 +55,7 @@ usage: train_a2a.py [-h] [-c FILE] [--DENSITY DENSITY] [--wavebased WAVEBASED] [
 Example usage:
 
 ```
-python train_a2a.py --OUTPUT_DIR output/a2a/NY869 --trainsubject NY869 --testsubject NY869 --param_file configs/a2a_production.yaml --batch_size 16 --reshape 1 --DENSITY "LD" --wavebased 1 --dynamicfiltershape 0 --n_filter_samples 80 --n_fft 512 --formant_supervision 1  --intensity_thres -1 --epoch_num 60
+python train_a2a.py --OUTPUT_DIR output/a2a/NY742 --trainsubject NY742 --testsubject NY742 --param_file configs/a2a_production.yaml --batch_size 16 --reshape 1 --DENSITY "LD" --wavebased 1 --dynamicfiltershape 0 --n_filter_samples 80 --n_fft 512 --formant_supervision 1  --intensity_thres -1 --epoch_num 60
 ```
 
 ## ECoG to Speech
@@ -65,7 +65,7 @@ Same arguments as `train_a2a.py`
 Example usage:
 
 ```
-python train_e2a.py --OUTPUT_DIR output/resnet_NY869 --trainsubject NY869 --testsubject NY869 --param_file configs/e2a_production.yaml --batch_size 16 --MAPPING_FROM_ECOG ECoGMapping_ResNet --reshape 1 --DENSITY "LD" --wavebased 1 --dynamicfiltershape 0 --n_filter_samples 80 --n_fft 512 --formant_supervision 1  --intensity_thres -1 --epoch_num 60 --pretrained_model_dir output/a2a/NY869 --causal 0
+python train_e2a.py --OUTPUT_DIR output/resnet_NY742 --trainsubject NY742 --testsubject NY742 --param_file configs/e2a_production.yaml --batch_size 16 --MAPPING_FROM_ECOG ECoGMapping_ResNet --reshape 1 --DENSITY "LD" --wavebased 1 --dynamicfiltershape 0 --n_filter_samples 80 --n_fft 512 --formant_supervision 1  --intensity_thres -1 --epoch_num 60 --pretrained_model_dir output/a2a/NY742 --causal 0
 ```
 
 
@@ -73,3 +73,13 @@ python train_e2a.py --OUTPUT_DIR output/resnet_NY869 --trainsubject NY869 --test
 We train 60 epochs for Speech to Speech and ECoG to Speech. Running on one A100 GPU usually take 6 hours for Speech to Speech and 10 hours for ECoG to Speech
 
 ## Citing Our Work
+```dotnetcli
+@article{chen2023neural,
+  title={A Neural Speech Decoding Framework Leveraging Deep Learning and Speech Synthesis},
+  author={Chen, Xupeng and Wang, Ran and Khalilian-Gourtani, Amirhossein and Yu, Leyao and Dugan, Patricia and Friedman, Daniel and Doyle, Werner and Devinsky, Orrin and Wang, Yao and Flinker, Adeen},
+  journal={bioRxiv},
+  pages={2023--09},
+  year={2023},
+  publisher={Cold Spring Harbor Laboratory}
+}
+```

@@ -14,7 +14,7 @@ class ECoGDataset(Dataset):
         
     def __init__(self, cfg,ReqSubjDict, mode = 'train', train_param = None,BCTS=None,world_size=1,ReshapeAsGrid=None,
                  DEBUG=False, rearrange_elec=0, low_density = True, process_ecog = True, formant_label = False, allsubj_param = None, 
-                 pitch_label = False, intensity_label = False, data_dir = 'data/',infer=False,repeattimes=128):
+                 pitch_label = False, intensity_label = False, data_dir = 'example_data/',infer=False,repeattimes=128):
         """ ReqSubjDict can be a list of multiple subjects"""
         super(ECoGDataset, self).__init__()
         self.DEBUG = DEBUG

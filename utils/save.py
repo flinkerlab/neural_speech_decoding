@@ -117,6 +117,11 @@ def mygriffinlim(msgram, hop_length):
         wave_gt[i] = griffinlim(msgram[i] ** 0.5, hop_length=hop_length)
     return wave_gt.ravel()
 
+def get_wave_torch(msgram, hop_length,cfg):
+    return torchaudio.functional.griffinlim(amplitude(msgram** 0.5,cfg.MODEL.noise_db,cfg.MODEL.max_db,trim_noise=True,),window=window, \
+        n_fft = cfg.MODEL.N_FFT*2-1, win_length = cfg.MODEL.N_FFT*2-1, hop_length = hop_length, power=1,n_iter=32,\
+                            momentum=0.99,rand_init=True, length=None    )
+
 
 def freq_coloring(sample, ind, color="r"):
     for b in range(sample.shape[0]):

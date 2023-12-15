@@ -1,0 +1,15 @@
+- GT: ground truth audio files
+  - HB_gt.wav: Hybrid-density participants ground truth audio
+  - LD_gt.wav: Low-density participants ground truth audio
+  - LEFT_gt.wav: Left hemisphere (LD) participants ground truth audio
+  - RIGHT_gt.wav: Right hemisphere (LD) participants ground truth audio
+- PRED: ResNet Decoder + Speech Synthesizer decoded speech from ECoG
+    - HB_pred.wav: Hybrid-density participants ECoG decoded audio
+    - LD_pred.wav: Low-density participants ECoG decoded audio
+    - LEFT_pred.wav: Left hemisphere (LD) participants ECoG decoded audio
+    - RIGHT_pred.wav: Right hemisphere (LD) participants ECoG decoded audio
+- Merge: merge of ground truth and decoded audio
+    - HB_merge.wav: Hybrid-density participants
+    - LD_merge.wav: Low-density participants ECoG
+    - LEFT_merge.wav: Left hemisphere (LD) participants
+    - RIGHT_merge.wav: Right hemisphere (LD) participants

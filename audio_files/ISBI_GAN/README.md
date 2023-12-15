@@ -1,0 +1,4 @@
+- wave_gt.wav: Hybrid-density participants ground truth audio
+- wave_pred_gan.wav: Hybrid-density participants transfer-GAN decoded speech from ECoG
+- wave_pred_syn.wav: Hybrid-density participants ResNet Decoder + Speech Synthesizer decoded speech from ECoG
+- wave_merge.wav: merge of ground truth, ResNet decoded, and GAN decoded speech.

@@ -232,8 +232,6 @@ parser.add_argument("--noise_db", type=float, default=-50, help="distill use or 
 parser.add_argument(
     "--return_filtershape", type=int, default=0, help="return_filtershape or not "
 )
-
-
 parser.add_argument("--classic_pe", type=int, default=0, help="classic_pe use or not ")
 parser.add_argument(
     "--temporal_down_before",
@@ -531,7 +529,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
     auxiliary = {
         "optimizer": optimizer,
-        #'scheduler': scheduler,
         "tracker": tracker,
         "tracker_test": tracker_test,
     }
@@ -550,7 +547,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
     patient_len = len(train_subject_info)
 
-    if args_.pretrained_model_dir == "None":
+    if args_.pretrained_model_dir == "":
         pass
     else:
         load_model_dir = args_.pretrained_model_dir
@@ -646,27 +643,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
         sample_spec_test2_all,
         sample_region_test_all,
     ) = (
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
+        {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
     )
     for subject in test_subject_info:
         dataset_test_all[subject].reset(

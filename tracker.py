@@ -41,8 +41,6 @@ class RunningMeanTorch:
             if len(self.values) == 0:
                 return 0.0
             return torch.cat(self.values).mean(dim=dim).numpy()
-
-
 class LossTracker:
     def __init__(self, output_folder='.',test=False):
         self.tracks = OrderedDict()
@@ -56,7 +54,6 @@ class LossTracker:
             if k not in self.tracks:
                 self.add(k)
             self.tracks[k] += v
-
     def add(self, name, pytorch=True):
         assert name not in self.tracks, "Name is already used"
         if pytorch:
@@ -66,11 +63,9 @@ class LossTracker:
         self.tracks[name] = track
         self.means_over_n_iters[name] = []
         return track
-
     def register_means(self, n_iter,suffix = 'iter'):
         if n_iter not in self.n_iters:
             self.n_iters.append(n_iter)
-
         for key in self.means_over_n_iters.keys():
             if key in self.tracks:
                 value = self.tracks[key]

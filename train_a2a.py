@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-DEBUG = 1
+DEBUG = 0
 
 import time
 import torch
@@ -621,7 +621,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
             model.module.noise_dist_init(noise_dist)
         else:
             model.noise_dist_init(noise_dist)
-    rnd = np.random.RandomState(3456)
     x_amp_from_denoise = False
 
     (
@@ -669,7 +668,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
         {},
         {},
     )
-
     for subject in test_subject_info:
         dataset_test_all[subject].reset(
             cfg.DATASET.MAX_RESOLUTION_LEVEL, len(dataset_test_all[subject].dataset)
@@ -679,8 +677,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
             sample_wave_test_all[subject] = (
                 sample_dict_test["wave_re_batch_all"].to(device).float()
             )
-        
-
             sample_voice_test_all[subject] = None
             sample_unvoice_test_all[subject] = None
             sample_semivoice_test_all[subject] = None
@@ -752,14 +748,8 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 cfg.MODEL.NOISE_DB,
                 cfg.MODEL.MAX_DB,
             )
-
-
     duomask = True
     n_iter = 0
-
-    epoch = 0
-
-    
 
     for epoch in range(cfg.TRAIN.TRAIN_EPOCHS):
         model.train()
@@ -769,166 +759,37 @@ def train(cfg, logger, local_rank, world_size, distributed):
         for sample_dict_train in tqdm(iter(dataset.iterator)):
             n_iter += 1
             i += 1
-            if cfg.DATASET.PROD:
-
-                wave_orig = sample_dict_train["wave_re_batch_all"].to(device).float()
-                wave_orig = reshape_multi_batch(
-                    wave_orig, batchsize=batch_size, patient_len=patient_len
+            wave_orig = sample_dict_train["wave_re_batch_all"].to(device).float()
+            wave_orig = reshape_multi_batch(
+                wave_orig, batchsize=batch_size, patient_len=patient_len
+            )
+            if cfg.MODEL.WAVE_BASED:
+                x_orig = (
+                    sample_dict_train["wave_spec_re_batch_all"].to(device).float()
                 )
-
-
-                if cfg.MODEL.WAVE_BASED:
-                    x_orig = (
-                        sample_dict_train["wave_spec_re_batch_all"].to(device).float()
-                    )
-                    x_orig_amp = (
-                        sample_dict_train["wave_spec_re_denoise_amp_batch_all"]
-                        .to(device)
-                        .float()
-                        if x_amp_from_denoise
-                        else sample_dict_train["wave_spec_re_amp_batch_all"]
-                        .to(device)
-                        .float()
-                    )
-                    x_orig_denoise = None  # 
-                else:
-                    x_orig = sample_dict_train["spkr_re_batch_all"].to(device).float()
-                    x_orig_denoise = None  # 
-                x_orig = reshape_multi_batch(
-                    x_orig, batchsize=batch_size, patient_len=patient_len
+                x_orig_amp = (
+                    sample_dict_train["wave_spec_re_denoise_amp_batch_all"]
+                    .to(device)
+                    .float()
+                    if x_amp_from_denoise
+                    else sample_dict_train["wave_spec_re_amp_batch_all"]
+                    .to(device)
+                    .float()
                 )
-                x_orig_amp = reshape_multi_batch(
-                    x_orig_amp, batchsize=batch_size, patient_len=patient_len
-                )
-                x_orig_denoise = reshape_multi_batch(
-                    x_orig_denoise, batchsize=batch_size, patient_len=patient_len
-                )
-                if cfg.MODEL.WAVE_BASED:
-                    x_orig2 = to_db(
-                        F.conv2d(
-                            x_orig_amp.transpose(-2, -1), hann_win, padding=[10, 0]
-                        ).transpose(-2, -1),
-                        cfg.MODEL.NOISE_DB,
-                        cfg.MODEL.MAX_DB,
-                    )
-                if args_.formant_supervision:
-                    formant_label = (
-                        sample_dict_train["formant_re_batch_all"].to(device).float()
-                    )
-                    formant_label = reshape_multi_batch(
-                        formant_label, batchsize=batch_size, patient_len=patient_len
-                    )
-                else:
-                    formant_label = None
-                if args_.pitch_supervision:
-                    pitch_label = (
-                        sample_dict_train["pitch_re_batch_all"].to(device).float()
-                    )
-                    pitch_label = reshape_multi_batch(
-                        pitch_label, batchsize=batch_size, patient_len=patient_len
-                    )
-                else:
-                    pitch_label = None
-                if args_.intensity_supervision:
-                    intensity_label = (
-                        sample_dict_train["intensity_re_batch_all"].to(device).float()
-                    )
-                    intensity_label = reshape_multi_batch(
-                        intensity_label, batchsize=batch_size, patient_len=patient_len
-                    )
-                else:
-                    intensity_label = None
-
-                on_stage = sample_dict_train["on_stage_re_batch_all"].to(device).float()
-                on_stage_wider = (
-                    sample_dict_train["on_stage_wider_re_batch_all"].to(device).float()
-                )
-                labels = sample_dict_train["label_batch_all"]
-                gender_train = sample_dict_train["gender_all"]
-
-                on_stage = reshape_multi_batch(
-                    on_stage, batchsize=batch_size, patient_len=patient_len
-                )
-                on_stage_wider = reshape_multi_batch(
-                    on_stage_wider, batchsize=batch_size, patient_len=patient_len
-                )
-                labels = list(itertools.chain(labels))
-                gender_train = reshape_multi_batch(
-                    gender_train, batchsize=batch_size, patient_len=patient_len
-                )
-
-                if cfg.MODEL.ECOG:
-                    ecog = [
-                        sample_dict_train["ecog_re_batch_all"][j].to(device).float()
-                        for j in range(len(sample_dict_train["ecog_re_batch_all"]))
-                    ]
-                    mask_prior = [
-                        sample_dict_train["mask_all"][j].to(device).float()
-                        for j in range(len(sample_dict_train["mask_all"]))
-                    ]
-                    mni_coordinate = (
-                        sample_dict_train["mni_coordinate_all"].to(device).float()
-                    )
-                else:
-                    ecog = None
-                    mask_prior = None
-                    mni_coordinate = None
-                x = x_orig
-                x_mel = (
-                    sample_dict_train["spkr_re_batch_all"].to(device).float()
-                    if cfg.MODEL.DO_MEL_GUIDE
-                    else None
-                )
-                if x_mel is not None:
-                    x_mel = reshape_multi_batch(
-                        x_mel, batchsize=batch_size, patient_len=patient_len
-                    )
-
-                sample_voice, sample_unvoice, sample_semivoice, sample_plosive, sample_fricative = \
-                None,None,None,None,None
-                
+                x_orig_denoise = None  # 
             else:
-                wave_orig = sample_dict_train["wave_batch_all"].to(device).float()
-                if not cfg.DATASET.DENSITY == "LD":
-                    sample_voice = (
-                        sample_dict_train["voice_batch_all"].to(device).float()
-                    )
-                    sample_unvoice = (
-                        sample_dict_train["unvoice_batch_all"].to(device).float()
-                    )
-                    sample_semivoice = (
-                        sample_dict_train["semivoice_batch_all"].to(device).float()
-                    )
-                    sample_plosive = (
-                        sample_dict_train["plosive_batch_all"].to(device).float()
-                    )
-                    sample_fricative = (
-                        sample_dict_train["fricative_batch_all"].to(device).float()
-                    )
-                else:
-                    sample_voice, sample_unvoice, sample_semivoice, sample_plosive, sample_fricative = \
-                        None,None,None,None,None
-                if cfg.MODEL.WAVE_BASED:
-                    # x_orig = wave2spec(wave_orig,n_fft=cfg.MODEL.N_FFT,noise_db=cfg.MODEL.NOISE_DB,max_db=cfg.MODEL.MAX_DB)
-                    x_orig = sample_dict_train["wave_spec_batch_all"].to(device).float()
-                    x_orig_amp = (
-                        sample_dict_train["wave_spec_denoise_amp_batch_all"]
-                        .to(device)
-                        .float()
-                        if x_amp_from_denoise
-                        else sample_dict_train["wave_spec_amp_batch_all"]
-                        .to(device)
-                        .float()
-                    )
-                    x_orig_denoise = (
-                        sample_dict_train["wave_spec_denoise_batch_all"]
-                        .to(device)
-                        .float()
-                    )
-                else:
-                    x_orig = sample_dict_train["spkr_batch_all"].to(device).float()
-                    x_orig_denoise = None  # sample_dict_train['wave_spec_denoise_batch_all'].to(device).float()
-
+                x_orig = sample_dict_train["spkr_re_batch_all"].to(device).float()
+                x_orig_denoise = None  # 
+            x_orig = reshape_multi_batch(
+                x_orig, batchsize=batch_size, patient_len=patient_len
+            )
+            x_orig_amp = reshape_multi_batch(
+                x_orig_amp, batchsize=batch_size, patient_len=patient_len
+            )
+            x_orig_denoise = reshape_multi_batch(
+                x_orig_denoise, batchsize=batch_size, patient_len=patient_len
+            )
+            if cfg.MODEL.WAVE_BASED:
                 x_orig2 = to_db(
                     F.conv2d(
                         x_orig_amp.transpose(-2, -1), hann_win, padding=[10, 0]
@@ -936,108 +797,115 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     cfg.MODEL.NOISE_DB,
                     cfg.MODEL.MAX_DB,
                 )
-                on_stage = sample_dict_train["on_stage_batch_all"].to(device).float()
-                on_stage_wider = (
-                    sample_dict_train["on_stage_wider_batch_all"].to(device).float()
+            if args_.formant_supervision:
+                formant_label = (
+                    sample_dict_train["formant_re_batch_all"].to(device).float()
                 )
-                labels = sample_dict_train["label_batch_all"]
-                gender_train = sample_dict_train["gender_all"]
-                if cfg.MODEL.ECOG:
-                    ecog = [
-                        sample_dict_train["ecog_batch_all"][j].to(device).float()
-                        for j in range(len(sample_dict_train["ecog_batch_all"]))
-                    ]
-                    mask_prior = [
-                        sample_dict_train["mask_all"][j].to(device).float()
-                        for j in range(len(sample_dict_train["mask_all"]))
-                    ]
-                    mni_coordinate = (
-                        sample_dict_train["mni_coordinate_all"].to(device).float()
-                    )
-                else:
-                    ecog = None
-                    mask_prior = None
-                    mni_coordinate = None
-                x = x_orig
-                x_mel = (
-                    sample_dict_train["spkr_batch_all"].to(device).float()
-                    if cfg.MODEL.DO_MEL_GUIDE
-                    else None
+                formant_label = reshape_multi_batch(
+                    formant_label, batchsize=batch_size, patient_len=patient_len
                 )
+            else:
+                formant_label = None
+            if args_.pitch_supervision:
+                pitch_label = (
+                    sample_dict_train["pitch_re_batch_all"].to(device).float()
+                )
+                pitch_label = reshape_multi_batch(
+                    pitch_label, batchsize=batch_size, patient_len=patient_len
+                )
+            else:
+                pitch_label = None
+            if args_.intensity_supervision:
+                intensity_label = (
+                    sample_dict_train["intensity_re_batch_all"].to(device).float()
+                )
+                intensity_label = reshape_multi_batch(
+                    intensity_label, batchsize=batch_size, patient_len=patient_len
+                )
+            else:
+                intensity_label = None
 
+            on_stage = sample_dict_train["on_stage_re_batch_all"].to(device).float()
+            on_stage_wider = (
+                sample_dict_train["on_stage_wider_re_batch_all"].to(device).float()
+            )
+            labels = sample_dict_train["label_batch_all"]
+            gender_train = sample_dict_train["gender_all"]
+
+            on_stage = reshape_multi_batch(
+                on_stage, batchsize=batch_size, patient_len=patient_len
+            )
+            on_stage_wider = reshape_multi_batch(
+                on_stage_wider, batchsize=batch_size, patient_len=patient_len
+            )
+            labels = list(itertools.chain(labels))
+            gender_train = reshape_multi_batch(
+                gender_train, batchsize=batch_size, patient_len=patient_len
+            )
 
             if cfg.MODEL.ECOG:
-                optimizer.zero_grad()
-                Lrec = model(
-                    spec2=x_orig2,
-                    spec=x,
-                    ecog=ecog,
-                    x_denoise=x_orig_denoise,
-                    x_mel=x_mel,
-                    on_stage=on_stage,
-                    on_stage_wider=on_stage_wider,
-                    gender=gender_train,
-                    voice=sample_voice,
-                    unvoice=sample_unvoice,
-                    semivoice=sample_semivoice,
-                    plosive=sample_plosive,
-                    fricative=sample_fricative,
-                    ae=True,
-                    tracker=tracker,
-                    encoder_guide=cfg.MODEL.W_SUP,
-                    duomask=duomask,
-                    x_amp=x_orig_amp,
-                )
-                ecog_key_list = [
-                    "Lae_a",
-                    "Lae_a_l2",
-                    "Lae_db",
-                    "Lae_db_l2",
-                    "Lloudness",
-                    "Lae_denoise",
-                    "Lamp",
-                    "Lae",
-                    "Lexp",
-                    "Lf0",
-                    "Ldiff",
+                ecog = [
+                    sample_dict_train["ecog_re_batch_all"][j].to(device).float()
+                    for j in range(len(sample_dict_train["ecog_re_batch_all"]))
                 ]
-                (Lrec).backward()
-                optimizer.step()
+                mask_prior = [
+                    sample_dict_train["mask_all"][j].to(device).float()
+                    for j in range(len(sample_dict_train["mask_all"]))
+                ]
+                mni_coordinate = (
+                    sample_dict_train["mni_coordinate_all"].to(device).float()
+                )
             else:
-                n_iter_pass = n_iter if n_iter % 1000 == 1 else 0
-                optimizer.zero_grad()
-                Lrec, tracker = model(
-                    spec=x,
-                    x_denoise=x_orig_denoise,
-                    x_mel=x_mel,
-                    ecog=ecog,
-                    on_stage=on_stage,
-                    on_stage_wider=on_stage_wider,
-                    ae=True,
-                    tracker=tracker,
-                    encoder_guide=cfg.MODEL.W_SUP,
-                    pitch_aug=False,
-                    gender=gender_train,
-                    duomask=duomask,
-                    debug=False,
-                    x_amp=x_orig_amp,
-                    hamonic_bias=False,
-                    x_amp_from_denoise=x_amp_from_denoise,
-                    voice=sample_voice,
-                    unvoice=sample_unvoice,
-                    semivoice=sample_semivoice,
-                    plosive=sample_plosive,
-                    fricative=sample_fricative,
-                    formant_label=formant_label,
-                    pitch_label=pitch_label,
-                    intensity_label=intensity_label,
-                    epoch_current=epoch,
-                    n_iter=n_iter_pass,
-                    save_path=cfg.OUTPUT_DIR,
-                )  # epoch<2)
-                (Lrec).backward()
-                optimizer.step()
+                ecog = None
+                mask_prior = None
+                mni_coordinate = None
+            x = x_orig
+            x_mel = (
+                sample_dict_train["spkr_re_batch_all"].to(device).float()
+                if cfg.MODEL.DO_MEL_GUIDE
+                else None
+            )
+            if x_mel is not None:
+                x_mel = reshape_multi_batch(
+                    x_mel, batchsize=batch_size, patient_len=patient_len
+                )
 
+            sample_voice, sample_unvoice, sample_semivoice, sample_plosive, sample_fricative = \
+            None,None,None,None,None
+                
+            n_iter_pass = n_iter if n_iter % 1000 == 1 else 0
+            optimizer.zero_grad()
+            Lrec, tracker = model(
+                spec=x,
+                x_denoise=x_orig_denoise,
+                x_mel=x_mel,
+                ecog=ecog,
+                on_stage=on_stage,
+                on_stage_wider=on_stage_wider,
+                ae=True,
+                tracker=tracker,
+                encoder_guide=cfg.MODEL.W_SUP,
+                pitch_aug=False,
+                gender=gender_train,
+                duomask=duomask,
+                debug=False,
+                x_amp=x_orig_amp,
+                hamonic_bias=False,
+                x_amp_from_denoise=x_amp_from_denoise,
+                voice=sample_voice,
+                unvoice=sample_unvoice,
+                semivoice=sample_semivoice,
+                plosive=sample_plosive,
+                fricative=sample_fricative,
+                formant_label=formant_label,
+                pitch_label=pitch_label,
+                intensity_label=intensity_label,
+                epoch_current=epoch,
+                n_iter=n_iter_pass,
+                save_path=cfg.OUTPUT_DIR,
+            )
+            (Lrec).backward()
+            optimizer.step()
             betta = 0.5 ** (cfg.TRAIN.BATCH_SIZE / (10 * 1000.0))
             model_s.lerp(model, betta, w_classifier=cfg.MODEL.W_CLASSIFIER)
 
@@ -1050,51 +918,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 checkpointer.save("model_epoch%d" % epoch)
 
             if epoch % save_inter == 0:
-                for subject in test_subject_info:
-                    model.eval()
-                    model(
-                        sample_spec_test_all[subject],
-                        x_denoise=sample_spec_denoise_test_all[subject],
-                        x_mel=sample_spec_mel_test_all[subject],
-                        ecog=ecog_test if cfg.MODEL.ECOG else None,
-                        on_stage=on_stage_test_all[subject],
-                        on_stage_wider=on_stage_wider_test_all[subject],
-                        ae=not cfg.MODEL.ECOG,
-                        tracker=tracker_test,
-                        encoder_guide=cfg.MODEL.W_SUP,
-                        pitch_aug=False,
-                        duomask=duomask,
-                        debug=False,
-                        x_amp=sample_spec_amp_test_all[subject],
-                        hamonic_bias=False,
-                        gender=gender_test_all[subject],
-                    )
-                    save_sample(
-                        cfg,
-                        sample_spec_test_all[subject],
-                        ecog_test_all[subject],
-                        encoder,
-                        decoder,
-                        ecog_encoder if cfg.MODEL.ECOG else None,
-                        encoder2,
-                        x_denoise=None,#sample_spec_denoise_test_all[subject],
-                        decoder_mel=decoder_mel if cfg.MODEL.DO_MEL_GUIDE else None,
-                        epoch=epoch,
-                        label=sample_label_test_all[subject],
-                        mode="test",
-                        tracker=tracker_test,
-                        path=cfg.OUTPUT_DIR,
-                        linear=cfg.MODEL.WAVE_BASED,
-                        n_fft=cfg.MODEL.N_FFT,
-                        duomask=duomask,
-                        x_amp=sample_spec_amp_test_all[subject],
-                        gender=gender_test_all[subject],
-                        sample_wave=sample_wave_test_all[subject],
-                        sample_wave_denoise=None,#sample_wave_denoise_test_all[subject],
-                        on_stage_wider=on_stage_test_all[subject],
-                        suffix=subject,
-                    )
-
                 save_sample(
                     cfg,
                     x,
@@ -1117,6 +940,52 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     gender=gender_train,
                     on_stage_wider=on_stage,
                 )
+                for subject in test_subject_info:
+                    model.eval()
+                    Lrec_test, tracker_test = model(
+                        sample_spec_test_all[subject],
+                        x_denoise=None,
+                        x_mel=sample_spec_mel_test_all[subject],
+                        ecog=ecog_test if cfg.MODEL.ECOG else None,
+                        on_stage=on_stage_test_all[subject],
+                        on_stage_wider=on_stage_wider_test_all[subject],
+                        ae=not cfg.MODEL.ECOG,
+                        tracker=tracker_test,
+                        encoder_guide=cfg.MODEL.W_SUP,
+                        pitch_aug=False,
+                        duomask=duomask,
+                        debug=False,
+                        x_amp=sample_spec_amp_test_all[subject],
+                        hamonic_bias=False,
+                        gender=gender_test_all[subject],
+                    )
+                    save_sample(
+                        cfg,
+                        sample_spec_test_all[subject],
+                        ecog_test_all[subject],
+                        encoder,
+                        decoder,
+                        ecog_encoder if cfg.MODEL.ECOG else None,
+                        encoder2,
+                        x_denoise=None,
+                        decoder_mel=decoder_mel if cfg.MODEL.DO_MEL_GUIDE else None,
+                        epoch=epoch,
+                        label=sample_label_test_all[subject],
+                        mode="test",
+                        tracker=tracker_test,
+                        path=cfg.OUTPUT_DIR,
+                        linear=cfg.MODEL.WAVE_BASED,
+                        n_fft=cfg.MODEL.N_FFT,
+                        duomask=duomask,
+                        x_amp=sample_spec_amp_test_all[subject],
+                        gender=gender_test_all[subject],
+                        sample_wave=sample_wave_test_all[subject],
+                        sample_wave_denoise=None,#sample_wave_denoise_test_all[subject],
+                        on_stage_wider=on_stage_test_all[subject],
+                        suffix=subject,
+                    )
+
+                
 
 if __name__ == "__main__":
     gpu_count = torch.cuda.device_count()

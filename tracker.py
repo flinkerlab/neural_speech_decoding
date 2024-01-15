@@ -50,7 +50,7 @@ class LossTracker:
         self.means_over_n_iters = OrderedDict()
         self.output_folder = output_folder
         self.filename = 'log_test.csv' if test else 'log_train.csv'
-
+        self.test = test
     def update(self, d):
         for k, v in d.items():
             if k not in self.tracks:
@@ -68,8 +68,6 @@ class LossTracker:
         return track
 
     def register_means(self, n_iter,suffix = 'iter'):
-        #print ('registering means,n_iter,self.n_iters',n_iter,self.n_iters)
-        #for multi patient, same n_iters keep occuring! should modify!
         if n_iter not in self.n_iters:
             self.n_iters.append(n_iter)
 
@@ -82,15 +80,15 @@ class LossTracker:
                 self.means_over_n_iters[key].append(None)
         with open(os.path.join(self.output_folder,  suffix+'_'+self.filename), mode='w') as csv_file:
             fieldnames = ['n_iter'] + [key+str(i) for key in list(self.tracks.keys()) for i in range(self.means_over_n_iters[key][0].size)]
-            # fieldnames = ['n_iter'] + [list(self.tracks.keys())]
             writer = csv.writer(csv_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
             writer.writerow(fieldnames)
-            #for key in self.means_over_n_iters.keys():
-            #    print (n_iter, key, self.means_over_n_iters[key][-1])
             for i in range(len(self.n_iters)):
-                writer.writerow([self.n_iters[i]] + [self.means_over_n_iters[x][i][j] if \
+                try:
+                    writer.writerow([self.n_iters[i]] + [self.means_over_n_iters[x][i][j] if \
                     self.means_over_n_iters[x][i].size>1 else self.means_over_n_iters[x][i] \
                         for x in self.tracks.keys() for j in range(self.means_over_n_iters[x][i].size) ])
+                except:
+                    pass
     def __str__(self):
         result = ""
         for key, value in self.tracks.items():

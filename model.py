@@ -1125,9 +1125,7 @@ class Model(nn.Module):
                                     components_ecog[key][:, : self.n_formants_ecog]
                                 )[1]
                             ) ** 2 * freq_single_formant_weight
-                            # just to db norm
                         elif self.amp_energy == 3:
-                            # half linear, half db
                             tmp_diff = (
                                 df_norm_torch(
                                     components_guide[key][:, : self.n_formants_ecog]
@@ -1172,7 +1170,6 @@ class Model(nn.Module):
                             )
                         }
                     )
-
                 if key in ["freq_formants_hamon"]:
                     weight = (
                         alpha_formant_weight
@@ -1198,7 +1195,6 @@ class Model(nn.Module):
                         diff,
                         alpha["freq_formants_hamon"] * betas["freq_formants_hamon"],
                     )
-
                     tracker.update(
                         {
                             "freq_formants_hamon_hz_metric_2": torch.mean(
@@ -1232,7 +1228,6 @@ class Model(nn.Module):
                             )
                         }
                     )
-
                 if key in ["amplitude_formants_noise"]:
                     weight = (
                         alpha_noise_weight
@@ -1240,7 +1235,7 @@ class Model(nn.Module):
                         * consonant_weight
                         * loudness_db_norm_weight
                     )
-                    if False:  # self.ghm_loss:
+                    if False:
                         diff = self.lae6(
                             components_guide[key], components_ecog[key], reweight=weight
                         )
@@ -1275,7 +1270,6 @@ class Model(nn.Module):
                                 df_norm_torch(tmp_target)[1]
                                 - df_norm_torch(tmp_ecog)[1]
                             ) ** 2 * freq_single_formant_weight
-                            # just to db norm
                         elif self.amp_energy == 3:
                             tmp_diff = (
                                 df_norm_torch(tmp_target)[1]
@@ -1387,19 +1381,7 @@ class Model(nn.Module):
                         * consonant_weight
                         * loudness_db_norm_weight
                     )
-                    if False:  # self.ghm_loss:
-                        diff = 3 * self.lae8(
-                            components_guide[key][:, -self.n_formants_noise :]
-                            / 2000
-                            * 5,
-                            components_ecog[key][:, -self.n_formants_noise :]
-                            / 2000
-                            * 5,
-                            reweight=weight,
-                        )
-                    else:
-                        # diff = 30*torch.mean((components_guide[key][:,-self.n_formants_noise:]/2000*5 - components_ecog[key][:,-self.n_formants_noise:]/2000*5)**2 * weight)
-                        diff = (
+                    diff = (
                             alpha["bandwidth_formants_noise_hz"]
                             * 3
                             * torch.mean(
@@ -1478,8 +1460,6 @@ class Model(nn.Module):
                 tracker.update({"formant_ratio_" + str(self.n_formants_ecog): tmp_diff})
             if "formant_ratio2" in components_ecog.keys():
                 weight = on_stage_wider * loudness_db_norm_weight
-
-                # get weight factor
                 formants_freqs_ratio_guide = (
                     components_guide["freq_formants_hamon_hz"][
                         :, : self.n_formants_ecog
@@ -1635,10 +1615,8 @@ class Model(nn.Module):
         n_iter=0,
         save_path="",
     ):
-        # print ('self.Visualize',self.Visualize)
-
         if not self.Visualize:
-            if ae:  # audio to audio
+            if ae:
                 self.encoder.requires_grad_(True)
                 components = self.encoder(
                     spec,
@@ -1812,7 +1790,6 @@ class Model(nn.Module):
                         )
                         ** 2
                     )
-                    # Lfricativeband = 4*(F.relu(components['bandwidth_formants_noise_hz'][:,-1:][fricative==1]/4500-4500./4500)**2)
                     Lfricativeband = (
                         Lfricativeband.mean()
                         if len(Lfricativeband) != 0
@@ -1841,7 +1818,6 @@ class Model(nn.Module):
                             Lfricativeband=Lfricativeband,
                         )
                     )
-
                 if x_amp_from_denoise:
                     if self.wavebased:
                         if self.power_synth:
@@ -1894,8 +1870,6 @@ class Model(nn.Module):
                     )
                     tracker.update(dict(Lae_denoise=Lae_denoise))
                     Lae += Lae_denoise
-                # import pdb;pdb.set_trace()
-                # if components['freq_formants_hamon'].shape[1] > 2:
                 freq_limit = self.encoder.formant_freq_limits_abs.squeeze()
 
                 freq_limit = (
@@ -1904,11 +1878,7 @@ class Model(nn.Module):
                     else mel_scale(self.spec_chans, freq_limit).long()
                 )
                 if debug:
-                    import pdb
-
-                    pdb.set_trace()
-
-                # if True:
+                    import pdb; pdb.set_trace()
                 if not self.wavebased:
                     n_formant_noise = (
                         components["freq_formants_noise"].shape[1]
@@ -1935,11 +1905,6 @@ class Model(nn.Module):
                         ][:, :formant]
 
                         if duomask:
-                            # components_copy['freq_formants_noise'] = components_copy['freq_formants_noise'][:,:formant]
-                            # components_copy['freq_formants_noise_hz'] = components_copy['freq_formants_noise_hz'][:,:formant]
-                            # components_copy['bandwidth_formants_noise'] = components_copy['bandwidth_formants_noise'][:,:formant]
-                            # components_copy['bandwidth_formants_noise_hz'] = components_copy['bandwidth_formants_noise_hz'][:,:formant]
-                            # components_copy['amplitude_formants_noise'] = components_copy['amplitude_formants_noise'][:,:formant]
                             components_copy["freq_formants_noise"] = torch.cat(
                                 [
                                     components_copy["freq_formants_noise"][:, :formant],
@@ -2004,11 +1969,7 @@ class Model(nn.Module):
                             (rec * freq_linear_reweighting),
                             (spec * freq_linear_reweighting),
                             tracker=tracker,
-                        )  # torch.mean(((rec - spec).abs()*freq_linear_reweighting)[...,:freq_limit[formant-1]])
-                        #   Lae += self.lae((rec*freq_linear_reweighting)[...,:freq_limit[formant-1]],(spec*freq_linear_reweighting)[...,:freq_limit[formant-1]],tracker=tracker)#torch.mean(((rec - spec).abs()*freq_linear_reweighting)[...,:freq_limit[formant-1]])
-                        # Lamp = 1*torch.mean(F.relu(-components['amplitude_formants_hamon'][:,0:3]+components['amplitude_formants_hamon'][:,1:4])*(components['amplitudes'][:,0:1]>components['amplitudes'][:,1:2]).float())
-                        # tracker.update(dict(Lamp=Lamp))
-                        # Lae+=Lamp
+                        )
                 else:
                     Lamp = 30 * torch.mean(
                         F.relu(
@@ -2024,10 +1985,7 @@ class Model(nn.Module):
                     Lae += Lamp
                 tracker.update(dict(Lae=Lae))
                 if debug:
-                    import pdb
-
-                    pdb.set_trace()
-
+                    import pdb;pdb.set_trace()
                 thres = (
                     int(hz2ind(4000, self.n_fft))
                     if self.wavebased
@@ -2057,15 +2015,11 @@ class Model(nn.Module):
                 )
                 tracker.update(dict(Lexp=Lexp))
                 Lae += Lexp
-
                 if hamonic_bias:
                     hamonic_loss = 1000 * torch.mean(
                         (1 - components["amplitudes"][:, 0]) * on_stage
                     )
                     Lae += hamonic_loss
-
-                # alphaloss=(F.relu(0.5-(components['amplitudes']-0.5).abs())*100).mean()
-                # Lae+=alphaloss
 
                 if pitch_aug:
                     pitch_shift = 2 ** (
@@ -2074,12 +2028,10 @@ class Model(nn.Module):
                         * torch.rand([components["f0_hz"].shape[0]]).to(torch.float32)
                     ).reshape(
                         [components["f0_hz"].shape[0], 1, 1]
-                    )  # +- 1 octave
-                    # pitch_shift = (2**(torch.randint(-1,2,[components['f0_hz'].shape[0]]).to(torch.float32)).reshape([components['f0_hz'].shape[0],1,1])).clamp(min=88,max=616) # +- 1 octave
+                    )
                     components["f0_hz"] = (components["f0_hz"] * pitch_shift).clamp(
                         min=88, max=300
                     )
-                    # components['f0'] = mel_scale(self.spec_chans,components['f0'])/self.spec_chans
                     rec_shift = self.decoder.forward(components, onstage=on_stage)
                     components_enc = self.encoder(
                         rec_shift,
@@ -2097,19 +2049,14 @@ class Model(nn.Module):
                         rec_shift * freq_linear_reweighting,
                         rec_cycle * freq_linear_reweighting,
                         tracker=tracker,
-                    )  # torch.mean((rec_shift-rec_cycle).abs()*freq_linear_reweighting)
-                    # import pdb;pdb.set_trace()
+                    )
                 else:
-                    # Lf0 = torch.mean((F.relu(160 - components['f0_hz']) + F.relu(components['f0_hz']-420))/10)
                     Lf0 = torch.tensor([0.0])
-                # Lf0 = torch.tensor([0.])
                 tracker.update(dict(Lf0=Lf0))
 
                 spec = spec.squeeze(dim=1).permute(0, 2, 1)  # B * f * T
                 loudness = torch.mean(spec * 0.5 + 0.5, dim=1, keepdim=True)
-                # import pdb;pdb.set_trace()
                 if self.wavebased:
-                    #  hamonic_components_diff = compdiffd2(components['f0_hz']*2) + compdiff(components['amplitudes'])*750.# + compdiff(components['amplitude_formants_hamon'])*750.  + ((components['loudness']*components['amplitudes'][:,1:]/0.0001)**0.125).mean()*50 + compdiff(components['amplitude_formants_noise'])*750.
                     if self.power_synth:
                         hamonic_components_diff = (
                             compdiffd2(components["freq_formants_hamon_hz"] * 1.5)
@@ -2131,9 +2078,8 @@ class Model(nn.Module):
                             * 1500.0
                             + compdiffd2(components["amplitude_formants_noise"])
                             * 1500.0
-                        )  #   + ((components['loudness']*components['amplitudes'][:,1:]/0.0001)**0.125).mean()*50
+                        )
                     else:
-                        # hamonic_components_diff = compdiffd2(components['freq_formants_hamon_hz']*1.5) + compdiffd2(components['f0_hz']*2)  + compdiff(components['amplitudes'])*750. + compdiffd2(components['amplitude_formants_hamon'])*1500.+ compdiffd2(components['amplitude_formants_noise'])*1500.#   + ((components['loudness']*components['amplitudes'][:,1:]/0.0001)**0.125).mean()*50
                         hamonic_components_diff = (
                             compdiffd2(components["freq_formants_hamon_hz"] * 1.5)
                             + compdiffd2(components["f0_hz"] * 2)
@@ -2154,12 +2100,7 @@ class Model(nn.Module):
                             * 1500.0
                             + compdiffd2(components["amplitude_formants_noise"])
                             * 1500.0
-                        )  #   + ((components['loudness']*components['amplitudes'][:,1:]/0.0001)**0.125).mean()*50
-
-                    # hamonic_components_diff = compdiffd2(components['freq_formants_hamon_hz']*1.5) + compdiffd2(components['f0_hz']*2)   + compdiff(components['bandwidth_formants_noise_hz'][:,components['freq_formants_hamon_hz'].shape[1]:]/5)  + compdiff(components['freq_formants_noise_hz'][:,components['freq_formants_hamon_hz'].shape[1]:]/5)+ compdiff(components['amplitudes'])*750.# + compdiff(components['amplitude_formants_hamon'])*750.  + ((components['loudness']*components['amplitudes'][:,1:]/0.0001)**0.125).mean()*50 + compdiff(components['amplitude_formants_noise'])*750.
-                    #  hamonic_components_diff = compdiffd2(components['freq_formants_hamon_hz']*1.5) + compdiffd2(components['f0_hz']*8)   + compdiff(components['bandwidth_formants_noise_hz'][:,components['freq_formants_hamon_hz'].shape[1]:]/5)  + compdiff(components['freq_formants_noise_hz'][:,components['freq_formants_hamon_hz'].shape[1]:]/5)+ compdiff(components['amplitudes'])*750.# + compdiff(components['amplitude_formants_hamon'])*750.  + ((components['loudness']*components['amplitudes'][:,1:]/0.0001)**0.125).mean()*50 + compdiff(components['amplitude_formants_noise'])*750.
-                    # hamonic_components_diff = compdiffd2(components['freq_formants_hamon_hz']*2) + compdiffd2(components['f0_hz']/10) + compdiff(components['amplitude_formants_hamon'])*750. + compdiff(components['amplitude_formants_noise'])*750. + compdiffd2(components['freq_formants_noise_hz'][:,components['freq_formants_hamon_hz'].shape[1]:]/10) + compdiff(components['bandwidth_formants_noise_hz'][:,components['freq_formants_hamon_hz'].shape[1]:]/10)
-                    # hamonic_components_diff = compdiffd2(components['freq_formants_hamon_hz'])+100*compdiffd2(components['f0_hz']*3) + compdiff(components['amplitude_formants_hamon'])*750. + compdiff(components['amplitude_formants_noise'])*750. #+ compdiff(components['freq_formants_noise_hz']*(1-on_stage_wider))
+                        )
                 else:
                     hamonic_components_diff = (
                         compdiff(
@@ -2168,10 +2109,8 @@ class Model(nn.Module):
                         + compdiff(components["f0_hz"] * (1 - on_stage_wider))
                         + compdiff(components["amplitude_formants_hamon"]) * 750.0
                         + compdiff(components["amplitude_formants_noise"]) * 750.0
-                    )  # + compdiff(components['freq_formants_noise_hz']*(1-on_stage_wider))
-                # hamonic_components_diff = compdiff(components['freq_formants_hamon_hz'])+compdiff(components['f0_hz']) + compdiff(components['amplitude_formants_hamon']*(1-on_stage_wider))*1500. + compdiff(components['amplitude_formants_noise']*(1-on_stage_wider))*1500. + compdiff(components['freq_formants_noise_hz'])
+                    )
                 Ldiff = torch.mean(hamonic_components_diff) / 2000.0
-                # Ldiff = torch.mean(components['freq_formants_hamon'].var()+components['freq_formants_noise'].var())*10
                 tracker.update(dict(Ldiff=Ldiff))
                 Lae += Ldiff
                 Lfreqorder = torch.mean(
@@ -2179,38 +2118,10 @@ class Model(nn.Module):
                         components["freq_formants_hamon_hz"][:, :-1]
                         - components["freq_formants_hamon_hz"][:, 1:]
                     )
-                )  # + (torch.mean(F.relu(components['freq_formants_noise_hz'][:,:-1]-components['freq_formants_noise_hz'][:,1:])) if components['freq_formants_noise_hz'].shape[1]>1 else 0)
-
-                # TODO: add formant and pitch supervision!!
+                )
                 if formant_label is not None:
                     formant_label = formant_label[:, 0].permute(0, 2, 1)
-                    # print ('formant_label is used!')
-                    # print (components['freq_formants_hamon_hz'].shape,formant_label.shape,on_stage.shape)
-                    # print (components['freq_formants_hamon_hz'] ,formant_label ,on_stage )
-                    debug_save_path = (
-                        self.tmpsavepath
-                    )  # '/scratch/xc1490/projects/ecog/ALAE_1023/output/a2a_04121200_a2a_sub_NY710_density_LD_formantsup_1_wavebased_1_bgnoisefromdata_1_load_0_ft_1_learnfilter_0/'
-                    # if epoch_record <= epoch_current:
-                    """
-                    try:
-                    #print ([int(i.split('.')[0].split('_')[-2]) for i in os.listdir(debug_save_path) if i.endswith('savelabel.npy')])
-                        #trial = int(np.max([int(i.split('.')[0].split('_')[-3]) for i in os.listdir(debug_save_path) if i.endswith(epoch_current+'_savelabel.npy')]))
-                        trial = int(np.max([int(i.split('.')[0].split('_')[-2]) for i in os.listdir(debug_save_path) if i.endswith('_savelabel.npy')]))
-                    except:
-                        trial = 0
-                    if trial <=200:
-                        trial += 1
-                        np.save(debug_save_path+'/formant_label_{}_savelabel.npy'.format( trial ), formant_label.detach().cpu().numpy())
-                        np.save(debug_save_path+'/formant_freq_{}_savelabel.npy'.format(trial ), components['freq_formants_hamon_hz'].detach().cpu().numpy())
-                        np.save(debug_save_path+'/on_stage_{}_savelabel.npy'.format(trial ), on_stage.detach().cpu().numpy())
-                        np.save(debug_save_path+'/spec_{}_savelabel.npy'.format(trial ), spec.detach().cpu().numpy())
-                        np.save(debug_save_path+'/rec_{}_savelabel.npy'.format(trial ), rec.detach().cpu().numpy())
-                        np.save(debug_save_path+'/formantonstage1_{}_savelabel.npy'.format(trial ), ((components['freq_formants_hamon_hz'][:,:-2] - formant_label[:,:-2]) * on_stage.expand_as(formant_label[:,:-2])).detach().cpu().numpy())
-                        np.save(debug_save_path+'/formantonstage2_{}_savelabel.npy'.format(trial ), ((components['freq_formants_hamon_hz'][:,0:1] - formant_label[:,0:1]) * on_stage.expand_as(formant_label[:,0:1])).detach().cpu().numpy())
-                        np.save(debug_save_path+'/formantonstage3_{}_savelabel.npy'.format(trial ), ((components['freq_formants_hamon_hz'][:,0:1] - formant_label[:,0:1]) * on_stage.expand_as(formant_label[:,0:1])).detach().cpu().numpy())
-                    #epoch_record += 1
-                    """
-                    # print (on_stage.expand_as(formant_label).shape)
+                    
                     Lformant = torch.mean(
                         (
                             (
@@ -2221,7 +2132,6 @@ class Model(nn.Module):
                         )
                         ** 2
                     )
-                    # give more weight to f1 and f2
                     Lformant += (
                         torch.mean(
                             (
@@ -2261,10 +2171,6 @@ class Model(nn.Module):
                         )
                         * 1.5
                     )
-                    # np.exp(0.1 * -np.arange(60))
-                    # weight_decay_formant = np.exp(- 0.1 *  epoch_current)
-                    # picewise linear, first 20 epochs, full formant supervision, then decay supervision to 0 at 40 epochs, then unsupervised
-                    # Lformant *= 0.005
                     weight_decay_formant = piecewise_linear(
                         epoch_current, start_decay=20, end_decay=40
                     )
@@ -2277,17 +2183,13 @@ class Model(nn.Module):
                             )
                         )
                     )
-                    # print ('weight decay', weight_decay_formant)
                 else:
                     Lformant = torch.tensor([0.0])  # 0
-                    # print ('formant_label is not used!')
                 if pitch_label is not None:
-                    # print (pitch_label.shape, components['f0_hz'].shape,on_stage.shape)
                     pitch_label = pitch_label  # [:,0]#.permute(0,2,1)
                     debug_save_path = (
                         self.tmpsavepath
-                    )  # '/scratch/xc1490/projects/ecog/ALAE_1023/output/a2a_04121200_a2a_sub_NY710_density_LD_formantsup_1_wavebased_1_bgnoisefromdata_1_load_0_ft_1_learnfilter_0/'
-                    # print (on_stage.expand_as(formant_label).shape)
+                    )
                     Lpitch = torch.mean(
                         (
                             (components["f0_hz"] - pitch_label)
@@ -2295,26 +2197,15 @@ class Model(nn.Module):
                         )
                         ** 2
                     )
-                    # give more weight to f1 and f2
-                    # np.exp(0.1 * -np.arange(60))
-                    # weight_decay_formant = np.exp(- 0.1 *  epoch_current)
-                    # picewise linear, first 20 epochs, full formant supervision, then decay supervision to 0 at 40 epochs, then unsupervised
-                    # Lformant *= 0.005
                     weight_decay_pitch = piecewise_linear(
                         epoch_current, start_decay=20, end_decay=40
                     )
                     Lpitch *= weight_decay_pitch * 0.0004
                     tracker.update(dict(Lpitch=Lpitch))
-                    # tracker.update(dict(  weight_decay_formant = torch.FloatTensor([weight_decay_formant])))
-                    # print ('weight decay', weight_decay_formant)
-                    # print ((components['f0_hz']  - pitch_label).abs().mean(), components['f0_hz'] , pitch_label)
                 else:
                     Lpitch = torch.tensor([0.0])  # 0
-                    # print ('formant_label is not used!')
-
                 return Lae + Lf0 + Lfreqorder + Lformant + Lloudness + Lpitch, tracker
-                # return  Lformant #debug 0413
-            else:  # ecog to audio
+            else:
                 components_guide = self.encode(
                     spec,
                     x_denoise=x_denoise,
@@ -2336,8 +2227,7 @@ class Model(nn.Module):
                 else:
                     if (
                         self.auto_regressive
-                    ):  # the target / guidance is one sample ahead of time
-                        # print (' spec before function', spec.shape)
+                    ):  
                         (
                             rec,
                             components_ecog,
@@ -2351,7 +2241,6 @@ class Model(nn.Module):
                             gender=gender,
                             onstage=on_stage,
                         )
-                        # print ('rec, spec after function',rec.shape,spec.shape)
                         on_stage = on_stage[:, :, 1:]
                         on_stage_wider = on_stage_wider[:, :, 1:]
                         voice = voice[:, :, 1:]
@@ -2411,7 +2300,6 @@ class Model(nn.Module):
                 )
 
                 if self.rdropout != 0:
-                    # for both rec and components_ecog
                     MSELoss, _ = self.run_components_loss(
                         rec1,
                         rec,

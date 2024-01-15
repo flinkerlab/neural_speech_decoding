@@ -109,6 +109,8 @@ class ECoGDataset(Dataset):
         self.repeattimes =  repeattimes
     def __len__(self):
         repeattimes = self.repeattimes
+        if self.DEBUG:
+            repeattimes = 1
         if self.mode == 'train':
             return np.array([start_ind_re_alldataset.shape[0]*(repeattimes if 'NY798' in self.ReqSubjDict else repeattimes)//self.world_size for start_ind_re_alldataset in self.meta_data['start_ind_re_valid_alldataset']]).sum()
         else:

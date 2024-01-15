@@ -527,7 +527,7 @@ def save_sample(
     use_GL = True
     labels = ()
     if tracker is not None:
-        # print ('epoch in savesample',epoch)
+        print ('epoch in savesample mode',epoch, mode)
         tracker.register_means(epoch, suffix="epoch")
     for i in range(len(label)):
         labels += label[i]

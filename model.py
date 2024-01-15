@@ -417,7 +417,7 @@ class Model(nn.Module):
         reverse_order=True,
         larger_capacity=False,
         unified=False,
-        use_stoi=False,quantfilename=None,
+        use_stoi=False
     ):
         super(Model, self).__init__()
         self.component_regression = component_regression
@@ -501,7 +501,7 @@ class Model(nn.Module):
             learnedbandwidth=learnedbandwidth,
             return_filtershape=return_filtershape,
             spec_fr=spec_fr,
-            reverse_order=reverse_order,quantfilename=quantfilename,
+            reverse_order=reverse_order
         )
         if do_mel_guide:
             self.decoder_mel = GENERATORS[generator](

@@ -581,8 +581,6 @@ class FormantSysth(nn.Module):
         return_filtershape=False,
         spec_fr=125,
         reverse_order=True,
-        quantfilename=None,
-        #'/scratch/xc1490/projects/ecog/ALAE_1023/neural_speech_decoding/data/models/869model/NY869_kmeans_model_Cluster100_Window2_6formants.pkl'
     ):
         super(FormantSysth, self).__init__()
         self.wave_fr = 16e3
@@ -667,7 +665,6 @@ class FormantSysth(nn.Module):
                 nn.init.constant_(self.dummy_a, -1.0)
 
         self.learned_mask = learned_mask
-        self.quantfilename = quantfilename
         
         if learned_mask:
             if learnedbandwidth or dynamic_filter_shape:
@@ -714,9 +711,6 @@ class FormantSysth(nn.Module):
                     dynamic=False,
                     reverse_order=reverse_order,
                 )
-        if quantfilename is not '':
-            print ('performing quantization')
-            self.quantizer = self.quantizer_model(quantfilename)
         
         
     def formant_mask(

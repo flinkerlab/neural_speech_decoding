@@ -1050,7 +1050,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     ecog_encoder if cfg.MODEL.ECOG else None,
                     encoder2,
                     x_denoise=x_orig_denoise,
-                    x_mel=x_mel,
                     decoder_mel=decoder_mel if cfg.MODEL.DO_MEL_GUIDE else None,
                     tracker=tracker,
                     epoch=epoch,

@@ -68,7 +68,7 @@ class LossTracker:
         return track
 
     def register_means(self, n_iter,suffix = 'iter'):
-        print ('registering means,n_iter,self.n_iters',n_iter,self.n_iters)
+        #print ('registering means,n_iter,self.n_iters',n_iter,self.n_iters)
         #for multi patient, same n_iters keep occuring! should modify!
         if n_iter not in self.n_iters:
             self.n_iters.append(n_iter)
@@ -85,8 +85,8 @@ class LossTracker:
             # fieldnames = ['n_iter'] + [list(self.tracks.keys())]
             writer = csv.writer(csv_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
             writer.writerow(fieldnames)
-            for key in self.means_over_n_iters.keys():
-                print (n_iter, key, self.means_over_n_iters[key][-1])
+            #for key in self.means_over_n_iters.keys():
+            #    print (n_iter, key, self.means_over_n_iters[key][-1])
             for i in range(len(self.n_iters)):
                 writer.writerow([self.n_iters[i]] + [self.means_over_n_iters[x][i][j] if \
                     self.means_over_n_iters[x][i].size>1 else self.means_over_n_iters[x][i] \

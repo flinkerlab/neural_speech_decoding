@@ -60,7 +60,6 @@ MODEL:
   W_CLASSIFIER: False
   CYCLE: False
   ATTENTIONAL_STYLE: True
-  #T            4      8      16    32    64    128 
   ATTENTION: [False, False, False, False, False, False]
   HEADS: 1
   APPLY_PPL: False 
@@ -109,7 +108,6 @@ TRAIN:
   LEARNING_DECAY_RATE: 0.1
   LEARNING_DECAY_STEPS: [96]
   TRAIN_EPOCHS: 60
-  #                    4    8   16    32    64    128    256
   LOD_2_BATCH_8GPU: [512, 256, 128,   64,   32,    32] # If GPU memory ~16GB reduce last number from 32 to 24
   LOD_2_BATCH_4GPU: [64, 64, 64,   64,   32,    16]
   LOD_2_BATCH_2GPU: [64, 64, 64,   64,   32,    16]

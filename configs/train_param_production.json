@@ -9,20 +9,20 @@
 	"DOWN_TF_FS": 125,
 	"DOWN_ECOG_FS": 125,
 	"Subj":{
-	"NY869":{
-	"Crop": null,
-	"Task_comment": ["VisRead","SenComp","PicN","AudN","AudRep","VisRead_imagine","SenComp_imagine","PicN_imagine","AudRep_imagine","AudN_imagine"],
-	"TestNum_comment":[10,10,10,10,10],
-	"Task_percept": ["SenComp","AudN","AudRep","SenComp_imagine","AudRep_imagine","AudN_imagine","SenComp_passive","AudRep_passive","AudN_passive"],
-	"TestNum_percept":[0,0,50,0,0,0,0,0,0],
-	"Task_imagine": ["VisRead","VisRead_imagine","SenComp_imagine","PicN_imagine","AudRep_imagine","AudN_imagine"],
-	"TestNum_imagine":[0,10,10,10,10,10],
-	"Task": ["VisRead","SenComp","PicN","AudN","AudRep"],
-	"TestNum":[10,10,10,10,10],
-	"Trim": 5,
-	"baseline":-0.11,
-	"AlphaSup":true
-	}},
+	"NY742":{
+		"Crop": null,
+		"Task_comment": ["VisRead","SenComp","PicN","AudN","AudRep","VisRead_imagine","SenComp_imagine","PicN_imagine","AudRep_imagine","AudN_imagine"],
+		"TestNum_comment":[10,10,10,10,10],
+		"Task_percept": ["SenComp","AudN","AudRep","SenComp_imagine","AudRep_imagine","AudN_imagine","SenComp_passive","AudRep_passive","AudN_passive"],
+		"TestNum_percept":[0,0,50,0,0,0,0,0,0],
+		"Task_imagine": ["VisRead","VisRead_imagine","SenComp_imagine","PicN_imagine","AudRep_imagine","AudN_imagine"],
+		"TestNum_imagine":[0,10,10,10,10,10],
+		"Task": ["VisRead","SenComp","PicN","AudN","AudRep"],
+		"TestNum":[10,10,10,10,10],
+		"Trim": 5,
+		"baseline":-0.11,
+		"AlphaSup":true
+		}},
 	"Train":{
 	 "lr": 0.001,
 	 "gamma": 0.8,

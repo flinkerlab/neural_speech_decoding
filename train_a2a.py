@@ -248,7 +248,7 @@ parser.add_argument("--batch_size", type=int, default=16, help="batch_size")
 parser.add_argument(
     "--param_file",
     type=str,
-    default="train_param_e2a_production.json",
+    default="configs/train_param_production.json",
     help="param_file",
 )
 parser.add_argument(
@@ -266,7 +266,7 @@ args_ = parser.parse_args()
 
 with open("configs/AllSubjectInfo.json", "r") as rfile:
     allsubj_param = json.load(rfile)
-with open("train_param_e2a_production.json", "r") as rfile:
+with open("configs/train_param_production.json", "r") as rfile:
     param = json.load(rfile)
 
 

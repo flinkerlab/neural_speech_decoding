@@ -39,7 +39,7 @@ Prepare the data in HDF5 format, refer to the [prepare_data](notebooks/prepare_d
 
 Optionally, if you want to provide extra supervision for pitch and formant, please refer to the [formant_pitch_label_extraction](notebooks/formant_pitch_label_extraction.ipynb)
 
-Example Data is available [HERE](example_data/README.md), you could download and put it in the `data` folder.
+Example Data is available [HERE](example_data/README.md), you could download and put it in the `example_data` folder.
 
 ## Training
 Fill in the config files including `configs/a2a_production.yaml,configs/e2a_production.yaml,configs/AllSubjectInfo.json,configs/train_param_production.json` following the example of participants `NY742`

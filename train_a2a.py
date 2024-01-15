@@ -1040,29 +1040,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
             betta = 0.5 ** (cfg.TRAIN.BATCH_SIZE / (10 * 1000.0))
             model_s.lerp(model, betta, w_classifier=cfg.MODEL.W_CLASSIFIER)
-            if n_iter % 1000000 == 1:
-                save_sample(
-                    cfg,
-                    x,
-                    ecog,
-                    encoder,
-                    decoder,
-                    ecog_encoder if cfg.MODEL.ECOG else None,
-                    encoder2,
-                    x_denoise=x_orig_denoise,
-                    decoder_mel=decoder_mel if cfg.MODEL.DO_MEL_GUIDE else None,
-                    tracker=tracker,
-                    epoch=epoch,
-                    label=labels,
-                    mode="train",
-                    path=cfg.OUTPUT_DIR,
-                    linear=cfg.MODEL.WAVE_BASED,
-                    n_fft=cfg.MODEL.N_FFT,
-                    duomask=duomask,
-                    x_amp=x_orig_amp,
-                    gender=gender_train,
-                    on_stage_wider=on_stage,
-                )
 
         if local_rank == 0:
             if len(test_subject_info) == 1:

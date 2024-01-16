@@ -606,14 +606,13 @@ def train(cfg, logger, local_rank, world_size, distributed):
             )
             load_sub_name = [i for i in load_sub_dir.split("/") if "NY" in i][0]
             print("subject, load_sub_name", subject, load_sub_name)
-            load_sub_dir = load_sub_dir + "/{}_a2a_model_epoch{}.pth".format(
-                   load_sub_name, max_epoch  
+            load_sub_dir = load_sub_dir + "/model_epoch{}.pth".format(
+                   max_epoch  
                 )
             print("pretrained load dir", load_sub_dir)
         else:
             load_sub_dir = ''
             print ('No pretrainde a2a model provided!')
-            #raise Exception("Please Provide pretrained_model_dir")
         (
             checkpointer_all[subject],
             model_all[subject],

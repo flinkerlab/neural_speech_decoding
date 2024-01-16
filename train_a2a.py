@@ -32,7 +32,6 @@ from utils.defaults import get_cfg_defaults
 from utils.save import save_sample
 import itertools
 device = "cuda" if torch.cuda.is_available() else "cpu"
-
 parser = argparse.ArgumentParser(description="formant")
 parser.add_argument(
     "-c",
@@ -142,7 +141,6 @@ parser.add_argument(
     default=0,
     help="if unified, the f0 and freq limits will be same for male and female!",
 )
-
 parser.add_argument(
     "--ONEDCONFIRST", type=int, default=1, help="use one d conv before lstm"
 )
@@ -267,8 +265,6 @@ with open("configs/AllSubjectInfo.json", "r") as rfile:
 with open("configs/train_param_production.json", "r") as rfile:
     param = json.load(rfile)
 
-
-
 def reshape_multi_batch(x, batchsize=2, patient_len=1):
     if x is not None:
         x = torch.transpose(x, 0, 1)
@@ -278,10 +274,7 @@ def reshape_multi_batch(x, batchsize=2, patient_len=1):
     else:
         return x
 
-
-
 def train(cfg, logger, local_rank, world_size, distributed):
-    # writer = SummaryWriter(cfg.OUTPUT_DIR)
     print("within train function", cfg.MODEL.N_FFT)
     if torch.cuda.is_available():
         torch.cuda.set_device(local_rank)
@@ -294,9 +287,8 @@ def train(cfg, logger, local_rank, world_size, distributed):
     if args_.testsubject != "":
         test_subject_info = args_.testsubject.split(",")
     else:
-        test_subject_info = args_.subject.split(",")  # cfg.DATASET.SUBJECT
-
-    if args_.unified:  # unifiy to gender male!
+        test_subject_info = args_.subject.split(",")
+    if args_.unified:
         for sub_in_train in train_subject_info:
             allsubj_param["Subj"][sub_in_train]["Gender"] = "Male"
     subject = train_subject_info[0]
@@ -324,9 +316,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
         causal=cfg.MODEL.CAUSAL,
         anticausal=cfg.MODEL.ANTICAUSAL,
         pre_articulate=cfg.DATASET.PRE_ARTICULATE,
-        alpha_sup=param["Subj"][train_subject_info[0]][
-            "AlphaSup"
-        ],
+        alpha_sup=param["Subj"][train_subject_info[0]]["AlphaSup"],
         ld_loss_weight=cfg.MODEL.ld_loss_weight,
         alpha_loss_weight=cfg.MODEL.alpha_loss_weight,
         consonant_loss_weight=cfg.MODEL.consonant_loss_weight,
@@ -384,9 +374,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
         causal=cfg.MODEL.CAUSAL,
         anticausal=cfg.MODEL.ANTICAUSAL,
         pre_articulate=cfg.DATASET.PRE_ARTICULATE,
-        alpha_sup=param["Subj"][train_subject_info[0]][
-            "AlphaSup"
-        ],
+        alpha_sup=param["Subj"][train_subject_info[0]]["AlphaSup"],
         ld_loss_weight=cfg.MODEL.ld_loss_weight,
         alpha_loss_weight=cfg.MODEL.alpha_loss_weight,
         consonant_loss_weight=cfg.MODEL.consonant_loss_weight,
@@ -415,12 +403,10 @@ def train(cfg, logger, local_rank, world_size, distributed):
         larger_capacity=args_.lar_cap,
         use_stoi=args_.use_stoi,
     )
-    
     if torch.cuda.is_available():
         model_s.cuda(local_rank)
     model_s.eval()
     model_s.requires_grad_(False)
-    # print(model)
     if distributed:
         model = nn.parallel.DistributedDataParallel(
             model,
@@ -458,7 +444,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
     arguments = dict()
     arguments["iteration"] = 0
-
     if hasattr(model, "ecog_encoder"):
         if cfg.MODEL.SUPLOSS_ON_ECOGF:
             optimizer = LREQAdam(
@@ -523,16 +508,13 @@ def train(cfg, logger, local_rank, world_size, distributed):
             model_dict["encoder2_s"] = model_s.encoder2
         if hasattr(model_s, "decoder_mel"):
             model_dict["decoder_mel_s"] = model_s.decoder_mel
-
     tracker = LossTracker(cfg.OUTPUT_DIR)
     tracker_test = LossTracker(cfg.OUTPUT_DIR, test=True)
-
     auxiliary = {
         "optimizer": optimizer,
         "tracker": tracker,
         "tracker_test": tracker_test,
     }
-
     checkpointer = Checkpointer(
         cfg, model_dict, auxiliary, logger=logger, save=local_rank == 0
     )
@@ -544,9 +526,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
         test_subject_info = args_.testsubject.split(",")
     else:
         test_subject_info = args_.subject.split(",")
-
     patient_len = len(train_subject_info)
-
     if args_.pretrained_model_dir == "":
         pass
     else:
@@ -589,7 +569,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
             intensity_label=intensity_label,
             DEBUG=DEBUG,
         )
-
     dataset_test_all = {}
     for subject in test_subject_info:
         dataset_test_all[subject] = TFRecordsDataset(
@@ -619,7 +598,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
         else:
             model.noise_dist_init(noise_dist)
     x_amp_from_denoise = False
-
     (
         sample_wave_test_all,
         sample_wave_denoise_test_all,
@@ -659,7 +637,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
             sample_semivoice_test_all[subject] = None
             sample_plosive_test_all[subject] = None
             sample_fricative_test_all[subject] = None
-
             if cfg.MODEL.WAVE_BASED:
                 sample_spec_test_all[subject] = (
                     sample_dict_test["wave_spec_re_batch_all"].to(device).float()
@@ -727,7 +704,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
             )
     duomask = True
     n_iter = 0
-
     for epoch in range(cfg.TRAIN.TRAIN_EPOCHS):
         model.train()
         need_permute = False
@@ -745,18 +721,13 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     sample_dict_train["wave_spec_re_batch_all"].to(device).float()
                 )
                 x_orig_amp = (
-                    sample_dict_train["wave_spec_re_denoise_amp_batch_all"]
-                    .to(device)
-                    .float()
-                    if x_amp_from_denoise
-                    else sample_dict_train["wave_spec_re_amp_batch_all"]
-                    .to(device)
-                    .float()
+                    sample_dict_train["wave_spec_re_denoise_amp_batch_all"].to(device).float()
+                    if x_amp_from_denoise else sample_dict_train["wave_spec_re_amp_batch_all"].to(device).float()
                 )
-                x_orig_denoise = None  # 
+                x_orig_denoise = None
             else:
                 x_orig = sample_dict_train["spkr_re_batch_all"].to(device).float()
-                x_orig_denoise = None  # 
+                x_orig_denoise = None
             x_orig = reshape_multi_batch(
                 x_orig, batchsize=batch_size, patient_len=patient_len
             )
@@ -801,14 +772,12 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 )
             else:
                 intensity_label = None
-
             on_stage = sample_dict_train["on_stage_re_batch_all"].to(device).float()
             on_stage_wider = (
                 sample_dict_train["on_stage_wider_re_batch_all"].to(device).float()
             )
             labels = sample_dict_train["label_batch_all"]
             gender_train = sample_dict_train["gender_all"]
-
             on_stage = reshape_multi_batch(
                 on_stage, batchsize=batch_size, patient_len=patient_len
             )
@@ -819,7 +788,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
             gender_train = reshape_multi_batch(
                 gender_train, batchsize=batch_size, patient_len=patient_len
             )
-
             if cfg.MODEL.ECOG:
                 ecog = [
                     sample_dict_train["ecog_re_batch_all"][j].to(device).float()
@@ -846,10 +814,8 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 x_mel = reshape_multi_batch(
                     x_mel, batchsize=batch_size, patient_len=patient_len
                 )
-
             sample_voice, sample_unvoice, sample_semivoice, sample_plosive, sample_fricative = \
             None,None,None,None,None
-                
             n_iter_pass = n_iter if n_iter % 1000 == 1 else 0
             optimizer.zero_grad()
             Lrec, tracker = model(
@@ -885,7 +851,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
             optimizer.step()
             betta = 0.5 ** (cfg.TRAIN.BATCH_SIZE / (10 * 1000.0))
             model_s.lerp(model, betta, w_classifier=cfg.MODEL.W_CLASSIFIER)
-
         if local_rank == 0:
             if len(test_subject_info) == 1:
                 save_inter = 5
@@ -893,7 +858,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 save_inter = 2
             if epoch % save_inter == 0:
                 checkpointer.save("model_epoch%d" % epoch)
-
             if epoch % save_inter == 0:
                 save_sample(
                     cfg,
@@ -962,12 +926,9 @@ def train(cfg, logger, local_rank, world_size, distributed):
                         suffix=subject,
                     )
 
-                
-
 if __name__ == "__main__":
     gpu_count = torch.cuda.device_count()
     cfg = get_cfg_defaults()
-
     config_TRAIN_EPOCHS = cfg.TRAIN.TRAIN_EPOCHS
     config_TRAIN_WARMUP_EPOCHS = 5
     config_TRAIN_MIN_LR = 5e-6
@@ -984,7 +945,6 @@ if __name__ == "__main__":
         test_subject_info = args_.testsubject.split(",")
     else:
         test_subject_info = args_.subject.split(",")
-
     with open("configs/AllSubjectInfo.json", "r") as rfile:
         allsubj_param = json.load(rfile)
     print(train_subject_info)

@@ -212,7 +212,6 @@ class ECoGDataset(Dataset):
             on_stage_wider_re_batch_all = np.concatenate(on_stage_wider_re_batch_all,axis=0)
         label_batch_all = np.concatenate(label_batch_all,axis=0).tolist()
         gender_all = np.concatenate(gender_all,axis=0)
-        
         return_dict = {'ecog_re_batch_all':ecog_re_batch_all,
                 'wave_re_batch_all':wave_re_batch_all,
                 'wave_spec_re_batch_all':wave_spec_re_batch_all,
@@ -228,7 +227,13 @@ class ECoGDataset(Dataset):
         if self.pitch:
             return_dict['pitch_re_batch_all'] = pitch_re_batch_all 
         if self.intensity:
-            return_dict['intensity_re_batch_all'] = intensity_re_batch_all 
+            return_dict['intensity_re_batch_all'] = intensity_re_batch_all
+        # print ('in dataloader')
+        # for key in  return_dict.keys():
+        #     try:
+        #         print (key,return_dict[key].shape)
+        #     except:
+        #         print (key, len(return_dict[key]))
         return return_dict
 
 

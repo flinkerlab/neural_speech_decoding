@@ -8,14 +8,16 @@ import torch.utils
 import torch.utils.data
 cpu = torch.device('cpu')
 
-
 class ECoGDataset(Dataset):
     """docstring for ECoGDataset"""
         
-    def __init__(self, cfg,ReqSubjDict, mode = 'train', train_param = None,BCTS=None,world_size=1,ReshapeAsGrid=None,
+    def __init__(self, cfg,ReqSubjDict, mode = 'train', train_param = None,BCTS=None,world_size=1,
                  DEBUG=False, rearrange_elec=0, low_density = True, process_ecog = True, formant_label = False, allsubj_param = None, 
                  pitch_label = False, intensity_label = False, data_dir = 'example_data/',infer=False,repeattimes=128):
-        """ ReqSubjDict can be a list of multiple subjects"""
+        """
+        ReqSubjDict can be a list of multiple subjects
+        Check notebooks/prepare_data.ipynb for data preparation
+        """
         super(ECoGDataset, self).__init__()
         self.DEBUG = DEBUG
         self.world_size = world_size
@@ -38,8 +40,6 @@ class ECoGDataset(Dataset):
             cfg.MODEL.NOISE_DB = cfg.MODEL.NOISE_DB_AMP
             cfg.MODEL.MAX_DB = cfg.MODEL.MAX_DB_AMP
         self.allsubj_param =  allsubj_param
-
-        
         self.meta_data = {}
         for sample in ReqSubjDict:
             meta_h5_file = os.path.join(data_dir,sample + '.h5')
@@ -59,29 +59,9 @@ class ECoGDataset(Dataset):
                 train_param = json.load(rfile)
         else:
             pass
-        self.ORG_WAVE_FS = allsubj_param['Shared']['ORG_WAVE_FS']
-        self.ORG_ECOG_FS = allsubj_param['Shared']['ORG_ECOG_FS']
-        self.DOWN_WAVE_FS  = allsubj_param['Shared']['DOWN_WAVE_FS']
-        self.ORG_ECOG_FS_NY = allsubj_param['Shared']['ORG_ECOG_FS_NY']
-        self.ORG_TF_FS = allsubj_param['Shared']['ORG_TF_FS']
-        self.cortex = {}
-        self.cortex.update({"AUDITORY" : allsubj_param['Shared']['AUDITORY']})
-        self.cortex.update({"BROCA" : allsubj_param['Shared']['BROCA']})
-        self.cortex.update({"MOTO" : allsubj_param['Shared']['MOTO']})
-        self.cortex.update({"SENSORY" : allsubj_param['Shared']['SENSORY']})
-        self.cortex.update({"PARIETAL" : allsubj_param['Shared']['PARIETAL']})
-        self.SelectRegion = []
-        [self.SelectRegion.extend(self.cortex[area]) for area in cfg.DATASET.SELECTREGION]
-        self.BlockRegion = []
-        [self.BlockRegion.extend(self.cortex[area]) for area in cfg.DATASET.BLOCKREGION]
+
         self.wavebased = cfg.MODEL.WAVE_BASED
-        if ReshapeAsGrid is not None:
-            self.ReshapeAsGrid = ReshapeAsGrid
-        else:
-            self.ReshapeAsGrid = False if ('lstm_' in cfg.MODEL.MAPPING_FROM_ECOG) or ('Transformer' in cfg.MODEL.MAPPING_FROM_ECOG) or ('Performer' in cfg.MODEL.MAPPING_FROM_ECOG) or ('ECoGMappingPerformer2Dconv_downsample1_posemb' in cfg.MODEL.MAPPING_FROM_ECOG) else True
-        print ('self.ReshapeAsGrid: ',self.ReshapeAsGrid,cfg.MODEL.MAPPING_FROM_ECOG)
-        self.UseGridOnly,self.SeqLen = train_param['UseGridOnly'],\
-                                                                    train_param['SeqLen']
+        self.UseGridOnly,self.SeqLen = train_param['UseGridOnly'],train_param['SeqLen']
         self.Prod = cfg.DATASET.PROD
         self.ahead_onset_test = train_param['Test']['ahead_onset']
         self.ahead_onset_train = train_param['Train']['ahead_onset']
@@ -91,9 +71,7 @@ class ECoGDataset(Dataset):
         self.meta_data['gender_alldataset'] = [allsubj_param["Subj"][subj]['Gender'] for subj in ReqSubjDict]
     
         self.ecog_alldataset = self.meta_data['ecog_alldataset']
-        #self.label_alldataset = self.meta_data['label_alldataset']
         self.label_alldataset = [np.array([i.decode('utf-8') for i in meta_data['label_alldataset'][:]]).astype('str')]
-
         self.TestNum_cum = np.array([np.sum(train_param["Subj"][subj]['TestNum'] ).astype(np.int32) for subj in ReqSubjDict])
         if self.formant:
             self.formant_re_alldataset = self.meta_data['formant_re_alldataset']
@@ -108,11 +86,8 @@ class ECoGDataset(Dataset):
         self.wave_spec_re_amp_alldataset = self.meta_data['wave_re_spec_amp_alldataset']
         self.repeattimes =  repeattimes
     def __len__(self):
-        repeattimes = self.repeattimes
-        if self.DEBUG:
-            repeattimes = 1
         if self.mode == 'train':
-            return np.array([start_ind_re_alldataset.shape[0]*(repeattimes if 'NY798' in self.ReqSubjDict else repeattimes)//self.world_size for start_ind_re_alldataset in self.meta_data['start_ind_re_valid_alldataset']]).sum()
+            return np.array([start_ind_re_alldataset.shape[0]*(self.repeattimes if 'NY798' in self.ReqSubjDict else self.repeattimes)//self.world_size for start_ind_re_alldataset in self.meta_data['start_ind_re_valid_alldataset']]).sum()
         else:
             return self.TestNum_cum[0]
 
@@ -141,7 +116,6 @@ class ECoGDataset(Dataset):
                     rand_ind = np.random.choice(np.arange(self.start_ind_re_valid_alldataset[i].shape[0])[:-self.TestNum_cum[i]],1,replace=False)[0]
             elif self.mode =='test':
                 rand_ind = idx+self.start_ind_re_valid_alldataset[i].shape[0]-self.TestNum_cum[i]
-            #print ('rand_ind',idx, rand_ind)
             label = [self.label_alldataset[i][rand_ind]]
             
             if self.Prod:
@@ -228,16 +202,7 @@ class ECoGDataset(Dataset):
             return_dict['pitch_re_batch_all'] = pitch_re_batch_all 
         if self.intensity:
             return_dict['intensity_re_batch_all'] = intensity_re_batch_all
-        # print ('in dataloader')
-        # for key in  return_dict.keys():
-        #     try:
-        #         print (key,return_dict[key].shape)
-        #     except:
-        #         print (key, len(return_dict[key]))
         return return_dict
-
-
-
 
 class TFRecordsDataset:
     def __init__(self, cfg, logger, rank=0, world_size=1, buffer_size_mb=200,data_dir = 'example_data/',\
@@ -291,26 +256,4 @@ class TFRecordsDataset:
         return iter(self.iterator)
 
     def __len__(self):
-        return len(self.dataset)#self.part_count_local * self.part_size
-    
-def make_dataloader(cfg, logger, dataset, GPU_batch_size, local_rank, numpy=False):
-    class BatchCollator(object):
-        def __init__(self, device=torch.device("cpu")):
-            self.device = device
-            self.flip = cfg.DATASET.FLIP_IMAGES
-            self.numpy = numpy
-
-        def __call__(self, batch):
-            with torch.no_grad():
-                x, = batch
-                if self.flip:
-                    flips = [(slice(None, None, None), slice(None, None, None), slice(None, None, random.choice([-1, None]))) for _ in range(x.shape[0])]
-                    x = np.array([img[flip] for img, flip in zip(x, flips)])
-                if self.numpy:
-                    return x
-                x = torch.tensor(x, requires_grad=True, device=torch.device(self.device), dtype=torch.float32)
-                return x
-
-    batches = db.data_loader(iter(dataset), BatchCollator(local_rank), len(dataset) // GPU_batch_size)
-
-    return batches
+        return len(self.dataset)

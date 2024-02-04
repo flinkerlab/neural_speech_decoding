@@ -1,4 +1,4 @@
-# Copyright 2020-2023 Ran Wang, Xupeng Chen
+# Copyright 2020-2023 Xupeng Chen, Ran Wang
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,8 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 
-LOAD = 1
-
 import torch
 from torch import optim as optim
 import torch.utils.data
@@ -23,7 +21,7 @@ import numpy as np
 import argparse, os, json, yaml
 from networks import *
 from model import Model
-from dataset import *
+from dataset import TFRecordsDataset
 from tracker import LossTracker
 from utils.custom_adam import LREQAdam
 from utils.checkpointer import Checkpointer
@@ -514,13 +512,13 @@ def load_model_checkpoint(
     checkpointer = Checkpointer(
         cfg, model_dict, auxiliary, logger=logger, save=local_rank == 0
     )
-    if LOAD:
-        extra_checkpoint_data = checkpointer.load(
-            ignore_last_checkpoint=True if not LOAD else False,
-            ignore_auxiliary=True,
-            file_name=load_dir,
-        )
-        arguments.update(extra_checkpoint_data)
+    extra_checkpoint_data = checkpointer.load(
+        ignore_last_checkpoint=False,
+        ignore_auxiliary=True,
+        file_name=load_dir,
+    )
+    arguments.update(extra_checkpoint_data)
+    
     return (
         checkpointer,
         model,

@@ -1,4 +1,4 @@
-# Copyright 2020-2023 Ran Wang, Xupeng Chen
+# Copyright 2020-2023 Xupeng Chen, Ran Wang
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-DEBUG = 0
 
 import time
 import torch
@@ -23,7 +22,7 @@ import numpy as np
 import argparse, os, json, yaml
 from networks import *
 from model import Model
-from dataset import *
+from dataset import TFRecordsDataset
 from tracker import LossTracker
 from utils.custom_adam import LREQAdam
 from utils.checkpointer import Checkpointer
@@ -532,7 +531,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
     else:
         load_model_dir = args_.pretrained_model_dir
         extra_checkpoint_data = checkpointer.load(
-            ignore_last_checkpoint=True if DEBUG else cfg.IGNORE_LOADING,
+            ignore_last_checkpoint=cfg.IGNORE_LOADING,
             ignore_auxiliary=True,
             file_name=load_model_dir,
         )
@@ -567,7 +566,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
             formant_label=args_.formant_supervision,
             pitch_label=pitch_label,
             intensity_label=intensity_label,
-            DEBUG=DEBUG,
         )
     dataset_test_all = {}
     for subject in test_subject_info:

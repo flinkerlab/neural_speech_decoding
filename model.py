@@ -1,22 +1,33 @@
+# Copyright 2020-2023 Xupeng Chen, Ran Wang
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#  http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+
+"""audio to audio and ecog to audio pipeline with loss functions"""
+
 from networks import *
 import numpy as np
 from torch.nn import functional as F
-from losses import CosineLoss
 from metrics.torch_stoi import NegSTOILoss
-
-
-def compdiff(comp):
-    return ((comp[:, :, 1:] - comp[:, :, :-1]).abs()).mean()
-
-
-def compdiffd2(comp):
-    diff = comp[:, :, 1:] - comp[:, :, :-1]
-    return ((diff[:, :, 1:] - diff[:, :, :-1]).abs()).mean()
-
-
 cumsum = torch.cumsum
 
 
+def compdiff(comp):
+    '''smoothness loss'''
+    return ((comp[:, :, 1:] - comp[:, :, :-1]).abs()).mean()
+def compdiffd2(comp):
+    diff = comp[:, :, 1:] - comp[:, :, :-1]
+    return ((diff[:, :, 1:] - diff[:, :, :-1]).abs()).mean()
 def diff_dim(data, axis=1):
     if axis == 1:
         data = F.pad(data, (0, 0, 1, 0))
@@ -24,23 +35,6 @@ def diff_dim(data, axis=1):
     elif axis == 2:
         data = F.pad(data, (1, 0, 0, 0))
         return data[:, :, 1:] - data[:, :, :-1]
-
-
-# cumsum(torch.tensor(result_dict['org']), axis=1)
-# diff_dim(torch.tensor(result_dict['org']), axis=1)
-# diff_dim(torch.tensor(result_dict['org']), axis=2)
-
-
-def _expand_binary_labels(labels, label_weights, label_channels):
-    bin_labels = labels.new_full((labels.size(0), label_channels), 0)
-    inds = torch.nonzero(labels >= 1).squeeze()
-    if inds.numel() > 0:
-        bin_labels[inds, labels[inds] - 1] = 1
-    bin_label_weights = label_weights.view(-1, 1).expand(
-        label_weights.size(0), label_channels
-    )
-    return bin_labels, bin_label_weights
-
 
 def safe_divide(numerator, denominator, eps=1e-7):
     """Avoid dividing by zero by adding a small epsilon."""
@@ -56,13 +50,11 @@ def safe_log(x, eps=1e-5):
     safe_x = torch.where(x <= eps, eps, x.double())
     return torch.log(safe_x).float()
 
-
 def safe_log_(x, eps=1e-5):
     """Avoid taking the log of a non-positive number."""
     print("type", type(x))
     safe_x = torch.where(x <= eps, eps, x)
     return torch.log(safe_x)
-
 
 def logb(x, base=2.0, safe=True):
     """Logarithm with base as an argument."""
@@ -71,20 +63,13 @@ def logb(x, base=2.0, safe=True):
     else:
         return torch.log(x) / torch.log(base)
 
-
 def hz_to_midi(frequencies):
     """Torch-compatible hz_to_midi function."""
-    # frequencies = frequencies.float()
     notes = 12.0 * (logb(frequencies, 2.0) - logb(torch.tensor([440.0]), 2.0)) + 69.0
     # Map 0 Hz to MIDI 0 (Replace -inf MIDI with 0.)
     notes = torch.where(torch.less_equal(frequencies, 0.0), 0.0, notes.double())
     return notes.float()
 
-
-# def minmaxscale(data):
-#   minv = data.min()
-#   maxv = data.max()
-#   return (data-minv)/(maxv - minv)
 def piecewise_linear(epoch, start_decay=20, end_decay=40):
     if epoch < start_decay:
         return 1
@@ -93,9 +78,8 @@ def piecewise_linear(epoch, start_decay=20, end_decay=40):
     else:
         return 0
 
-
 def minmaxscale(data, quantile=0.9):
-    # for harmonic scale
+    # for frequency scaling
     if quantile is not None:
         datamax = torch.quantile(data, quantile)
         data = torch.clip(data, -10e10, datamax)
@@ -105,7 +89,6 @@ def minmaxscale(data, quantile=0.9):
         return data
     else:
         return (data - minv) / (maxv - minv)
-
 
 def minmaxscale_ref(data, data_select, quantile=0.9):
     # for noise scale
@@ -122,76 +105,19 @@ def minmaxscale_ref(data, data_select, quantile=0.9):
     else:
         return (data - minv) / (maxv - minv)
 
-
-
 def df_norm_torch(amp):
     amp_db = torchaudio.transforms.AmplitudeToDB()(amp)
     amp_db_norm = (amp_db.clamp(min=-70) + 70) / 50
     return amp_db, amp_db_norm
 
-
-class GHMC(nn.Module):
-    def __init__(self, bins=30, momentum=0, use_sigmoid=True, loss_weight=1.0):
-        super(GHMC, self).__init__()
-        self.bins = bins
-        self.momentum = momentum
-        self.edges = [float(x) / bins for x in range(bins + 1)]
-        self.edges[-1] += 1e-6
-        if momentum > 0:
-            self.acc_sum = [0.0 for _ in range(bins)]
-        self.use_sigmoid = use_sigmoid
-        self.loss_weight = loss_weight
-
-    def forward(self, pred, target, label_weight, *args, **kwargs):
-        """Args:
-        pred [batch_num, class_num]:
-            The direct prediction of classification fc layer.
-        target [batch_num, class_num]:
-            Binary class target for each sample.
-        label_weight [batch_num, class_num]:
-            the value is 1 if the sample is valid and 0 if ignored.
-        """
-        if not self.use_sigmoid:
-            raise NotImplementedError
-        # the target should be binary class label
-        if pred.dim() != target.dim():
-            target, label_weight = _expand_binary_labels(
-                target, label_weight, pred.size(-1)
-            )
-        target, label_weight = target.float(), label_weight.float()
-        edges = self.edges
-        mmt = self.momentum
-        weights = torch.zeros_like(pred)
-
-        # gradient length
-        g = torch.abs(pred.sigmoid().detach() - target)
-
-        valid = label_weight > 0
-        tot = max(valid.float().sum().item(), 1.0)
-        n = 0  # n valid bins
-        for i in range(self.bins):
-            inds = (g >= edges[i]) & (g < edges[i + 1]) & valid
-            num_in_bin = inds.sum().item()
-            if num_in_bin > 0:
-                if mmt > 0:
-                    self.acc_sum[i] = mmt * self.acc_sum[i] + (1 - mmt) * num_in_bin
-                    weights[inds] = tot / self.acc_sum[i]
-                else:
-                    weights[inds] = tot / num_in_bin
-                n += 1
-        if n > 0:
-            weights = weights / n
-
-        loss = (
-            F.binary_cross_entropy_with_logits(pred, target, weights, reduction="sum")
-            / tot
-        )
-        return loss * self.loss_weight
-
-
 class GHMR(nn.Module):
     def __init__(self, mu=0.02, bins=30, momentum=0, loss_weight=1.0):
         super(GHMR, self).__init__()
+        """
+        explained in Gradient Harmonized Single-stage Detector: https://arxiv.org/pdf/1811.05181.pdf
+        balance the training process in object detection and other tasks
+        especially for datasets with imbalanced distributions of object classes and difficulties.
+        """
         self.mu = mu
         self.bins = bins
         self.edges = [float(x) / bins for x in range(bins + 1)]
@@ -214,15 +140,12 @@ class GHMR(nn.Module):
         mu = self.mu
         edges = self.edges
         mmt = self.momentum
-
         # ASL1 loss
         diff = pred - target
         loss = torch.sqrt(diff * diff + mu * mu) - mu
-
         # gradient length
         g = torch.abs(diff / torch.sqrt(mu * mu + diff * diff)).detach()
         weights = torch.zeros_like(g)
-
         valid = label_weight > 0
         tot = max(label_weight.float().sum().item(), 1.0)
         n = 0  # n: valid bins
@@ -247,6 +170,11 @@ class GHMR(nn.Module):
 class STOI_Loss(nn.Module):
     def __init__(self, extended=False, plus=True, FFT_size=256):
         super(STOI_Loss, self).__init__()
+        """
+        Differentiable Short-Time Objective Intelligibility (STOI) Loss
+        https://ieeexplore.ieee.org/document/5495701
+        Detailed in metrics.torch_stoi 
+        """
         self.loss_func = NegSTOILoss(
             sample_rate=16000, extended=extended, plus=plus, FFT_size=FFT_size
         )
@@ -256,89 +184,11 @@ class STOI_Loss(nn.Module):
         tracker.update(dict({"Lae_" + suffix: stoi_loss}))
         return stoi_loss
 
-
-class LAE(nn.Module):
-    def __init__(
-        self,
-        mu=0.02,
-        bins=30,
-        momentum=0.75,
-        loss_weight=1.0,
-        db=True,
-        amp=True,
-        noise_db=-50,
-        max_db=22.5,
-        cumsum=False,
-        delta_freq=False,
-        delta_time=False,
-    ):
-        super(LAE, self).__init__()
-        self.db = db
-        self.amp = amp
-        self.noise_db = noise_db
-        self.max_db = max_db
-        self.delta_time = delta_time
-        self.delta_freq = delta_freq
-        self.cumsum = cumsum
-        if db:
-            self.ghm_db = GHMR(mu, bins, momentum, loss_weight)
-        if amp:
-            self.ghm_amp = GHMR(mu, bins, momentum, loss_weight)
-
-    def forward(self, rec, spec, tracker=None, reweight=1):
-        if self.db:
-            loss_db = self.ghm_db(rec, spec, torch.ones(spec.shape), reweight=reweight)
-            if tracker is not None:
-                tracker.update(dict(Lae_db=loss_db))
-        else:
-            loss_db = torch.tensor(0.0)
-        spec_amp = amplitude(spec, noise_db=self.noise_db, max_db=self.max_db)
-        rec_amp = amplitude(rec, noise_db=self.noise_db, max_db=self.max_db)
-        if self.amp:
-            loss_a = self.ghm_amp(
-                rec_amp, spec_amp, torch.ones(spec_amp.shape), reweight=reweight
-            )
-            if tracker is not None:
-                tracker.update(dict(Lae_a=loss_a))
-        else:
-            loss_a = torch.tensor(0.0)
-        if self.delta_time:
-            loss_delta_time = self.ghm_amp(
-                diff_dim(rec_amp, axis=2),
-                diff_dim(spec_amp, axis=2),
-                torch.ones(spec_amp.shape),
-                reweight=reweight,
-            )
-            if tracker is not None:
-                tracker.update(dict(Lae_delta_time=loss_delta_time))
-        else:
-            loss_delta_time = torch.tensor(0.0)
-        if self.delta_freq:
-            loss_delta_freq = self.ghm_amp(
-                diff_dim(rec_amp, axis=1),
-                diff_dim(spec_amp, axis=1),
-                torch.ones(spec_amp.shape),
-                reweight=reweight,
-            )
-            if tracker is not None:
-                tracker.update(dict(Lae_delta_time=loss_delta_freq))
-        else:
-            loss_delta_freq = torch.tensor(0.0)
-        if self.cumsum:
-            loss_cumsum = self.ghm_amp(
-                cumsum(rec_amp, axis=1),
-                cumsum(spec_amp, axis=1),
-                torch.ones(spec_amp.shape),
-                reweight=reweight,
-            )
-            if tracker is not None:
-                tracker.update(dict(Lae_delta_time=loss_cumsum))
-        else:
-            loss_cumsum = torch.tensor(0.0)
-        return loss_db + loss_a + loss_delta_time + loss_delta_freq + loss_cumsum
-
-
 def MTF_pytorch(S):
+    """
+    Compute the Modulation Transfer Function (MTF) of a spectrogram. 
+    Then we could use it to compute the MTF loss between original and reconstructed spectrogram.
+    """
     # S is linear spectrogram
     F = torch.fft.fftshift(
         torch.log(torch.abs(torch.fft.fft2(torch.log(torch.abs(S)))))
@@ -496,7 +346,6 @@ class Model(nn.Module):
             dummy_formant=dummy_formant,
             learned_mask=learned_mask,
             n_filter_samples=n_filter_samples,
-            # dynamic_bgnoise = dynamic_bgnoise,  dealed by noise_from_data
             dynamic_filter_shape=dynamic_filter_shape,
             learnedbandwidth=learnedbandwidth,
             return_filtershape=return_filtershape,
@@ -513,7 +362,6 @@ class Model(nn.Module):
                 max_db=max_db,
                 add_bgnoise=False,
             )
-        # print ('*'*100,'within model class n fft',n_fft)
         self.encoder = ENCODERS[encoder](
             n_mels=spec_chans,
             n_formants=n_formants,
@@ -553,14 +401,6 @@ class Model(nn.Module):
                     pre_articulate=pre_articulate,
                 )
         self.ghm_loss = ghm_loss
-        self.lae1 = LAE(noise_db=self.noise_db, max_db=self.max_db)
-        self.lae2 = LAE(amp=False)
-        self.lae3 = LAE(amp=False)
-        self.lae4 = LAE(amp=False)
-        self.lae5 = LAE(amp=False)
-        self.lae6 = LAE(amp=False)
-        self.lae7 = LAE(amp=False)
-        self.lae8 = LAE(amp=False)
         self.stoi_loss_female = STOI_Loss(extended=False, plus=True, FFT_size=256)
         self.stoi_loss_male = STOI_Loss(extended=False, plus=True, FFT_size=512)
 
@@ -579,8 +419,6 @@ class Model(nn.Module):
         onstage=None,
     ):
         if self.auto_regressive:
-            # print ('use auto regressive')
-            # print ('gt_comp first come in function',gt_comp['f0_hz'].shape)
             components = self.ecog_encoder(
                 ecog,
                 gt_comp,
@@ -593,7 +431,6 @@ class Model(nn.Module):
                 target_comp, components = components
             target_spec = gt_spec[:, :, 1:]
         else:
-            # print ('not use auto regressive')
             components = self.ecog_encoder(ecog)
         rec = self.decoder.forward(components, onstage)
         if return_components:
@@ -655,7 +492,15 @@ class Model(nn.Module):
         suffix="",
         MTF=False,
     ):
-
+        """
+        given rec, spec as reconstructed and original spectrogram, compute the difference loss including:
+        1. L2 GHMR loss in dB scale
+        2. L2 GHMR loss in amp scale
+        3. delta loss in time domain to smooth neighboring frames
+        4. delta loss in freq domain to smooth neighboring freqs
+        5. cumsum loss to ensure more attention to low freqs
+        6. L2 GHMR loss between MTF of original and reconstructed spectrogram
+        """
         if amp:
             spec_amp = amplitude(spec, noise_db=self.noise_db, max_db=self.max_db)
             rec_amp = amplitude(rec, noise_db=self.noise_db, max_db=self.max_db)
@@ -680,8 +525,7 @@ class Model(nn.Module):
             if GHM:
                 Lae_db = self.ghm_loss(rec, spec, torch.ones(spec))  # *150
                 Lae_db_l2 = torch.tensor([0.0])
-            else:  # we use this branch!!!
-                # print ('loudness loss!!')
+            else:
                 Lae_db = (spec - rec).abs().mean()
                 Lae_db_l2 = torch.sqrt((spec - rec) ** 2 + 1e-6).mean()
         else:
@@ -725,13 +569,11 @@ class Model(nn.Module):
                 tracker.update(dict({"Lae_delta_time" + suffix: loss_cumsum}))
         else:
             loss_cumsum = torch.tensor(0.0)
-        # return loss_db+loss_a+loss_delta_time+loss_delta_freq+loss_cumsum
-
+        
         if tracker is not None:
             tracker.update(
                 dict({"Lae_db" + suffix: Lae_db, "Lae_db_l2" + suffix: Lae_db_l2})
             )
-        # return (Lae_a + Lae_a_l2)/2. + (Lae_db+Lae_db_l2)/2.
         return (
             Lae_a
             + Lae_db / 2.0
@@ -742,6 +584,7 @@ class Model(nn.Module):
         )
 
     def flooding(self, loss, beta):
+        '''flooding loss function https://proceedings.mlr.press/v119/ishida20a/ishida20a.pdf'''
         if self.apply_flooding:
             return (loss - beta).abs() + beta
         else:
@@ -760,14 +603,11 @@ class Model(nn.Module):
         on_stage,
     ):
         if self.spec_sup and not self.A2A:
-            if False:  # self.ghm_loss:
-                Lrec = 0.3 * self.lae1(rec, spec, tracker=tracker)
-            else:
-                Lrec = 80 * self.lae(
+            Lrec = 80 * self.lae(
                     rec, spec, tracker=tracker, amp=False, suffix="1", MTF=False
-                )  # torch.mean((rec - spec)**2)
+                )
         else:
-            Lrec = torch.tensor([0.0])  #
+            Lrec = torch.tensor([0.0])
 
         spec_amp = amplitude(spec, self.noise_db, self.max_db).transpose(-2, -1)
         rec_amp = amplitude(rec, self.noise_db, self.max_db).transpose(-2, -1)
@@ -987,18 +827,14 @@ class Model(nn.Module):
                             torchaudio.transforms.AmplitudeToDB()(components_ecog[key])
                             + 70
                         ) / 50
-                    if False:  # self.ghm_loss:
-                        diff = self.lae2(loudness_db_norm, loudness_db_norm_ecog)
-                    else:
-                        diff = (
-                            alpha["loudness"]
-                            * 150
-                            * torch.mean(
-                                (loudness_db_norm - loudness_db_norm_ecog) ** 2
-                            )
-                        )  # + torch.mean((components_guide[key] - components_ecog[key])**2 * on_stage * consonant_weight)
-                    # diff = self.flooding(diff * 0.2 ,alpha['loudness']*betas['loudness']) #0519 modify loudness loss!
-                    # 0918 modify loudness loss, remove flooding to encourage a more rigourous learning
+                    
+                    diff = (
+                        alpha["loudness"]
+                        * 150
+                        * torch.mean(
+                            (loudness_db_norm - loudness_db_norm_ecog) ** 2
+                        )
+                    )
                     tracker.update(
                         {
                             "loudness_metric": torch.mean(
@@ -1051,7 +887,7 @@ class Model(nn.Module):
                         diff = (
                             alpha["amplitudes"]
                             * 540
-                            * self.lae3(tmp_target, tmp_ecog, reweight=weight)
+                            * self.lae(tmp_target, tmp_ecog, reweight=weight)
                         )
                     else:
                         diff = (
@@ -1082,75 +918,70 @@ class Model(nn.Module):
                         * consonant_weight
                         * loudness_db_norm_weight
                     )
-                    if False:  # self.ghm_loss:
-                        diff = 40 * self.lae4(
-                            components_guide[key][:, : self.n_formants_ecog],
-                            components_ecog[key],
-                            reweight=weight,
-                        )
-                    else:
-                        if self.amp_energy == 1:
-                            tmp_diff = (
-                                df_norm_torch(
-                                    (
-                                        components_guide["loudness"].expand_as(
-                                            components_guide[key][
-                                                :, : self.n_formants_ecog
-                                            ]
-                                        )
-                                        * components_guide[key][
-                                            :, : self.n_formants_ecog
-                                        ]
-                                    )
-                                )[1]
-                                - df_norm_torch(
-                                    (
-                                        components_guide["loudness"].expand_as(
-                                            components_ecog[key][
-                                                :, : self.n_formants_ecog
-                                            ]
-                                        )
-                                        * components_ecog[key][
-                                            :, : self.n_formants_ecog
-                                        ]
-                                    )
-                                )[1]
-                            ) ** 2 * freq_single_formant_weight
-                        elif self.amp_energy == 2:
-                            tmp_diff = (
-                                df_norm_torch(
-                                    components_guide[key][:, : self.n_formants_ecog]
-                                )[1]
-                                - df_norm_torch(
-                                    components_ecog[key][:, : self.n_formants_ecog]
-                                )[1]
-                            ) ** 2 * freq_single_formant_weight
-                        elif self.amp_energy == 3:
-                            tmp_diff = (
-                                df_norm_torch(
-                                    components_guide[key][:, : self.n_formants_ecog]
-                                )[1]
-                                - df_norm_torch(
-                                    components_ecog[key][:, : self.n_formants_ecog]
-                                )[1]
-                            ) ** 2 * freq_single_formant_weight + (
+                    
+                    
+                    if self.amp_energy == 1:
+                        tmp_diff = (
+                            df_norm_torch(
                                 (
-                                    components_guide[key][:, : self.n_formants_ecog]
-                                    - components_ecog[key][:, : self.n_formants_ecog]
+                                    components_guide["loudness"].expand_as(
+                                        components_guide[key][
+                                            :, : self.n_formants_ecog
+                                        ]
+                                    )
+                                    * components_guide[key][
+                                        :, : self.n_formants_ecog
+                                    ]
                                 )
-                                ** 2
-                                * freq_single_formant_weight
-                            )
-                        else:
-                            tmp_diff = (
+                            )[1]
+                            - df_norm_torch(
+                                (
+                                    components_guide["loudness"].expand_as(
+                                        components_ecog[key][
+                                            :, : self.n_formants_ecog
+                                        ]
+                                    )
+                                    * components_ecog[key][
+                                        :, : self.n_formants_ecog
+                                    ]
+                                )
+                            )[1]
+                        ) ** 2 * freq_single_formant_weight
+                    elif self.amp_energy == 2:
+                        tmp_diff = (
+                            df_norm_torch(
+                                components_guide[key][:, : self.n_formants_ecog]
+                            )[1]
+                            - df_norm_torch(
+                                components_ecog[key][:, : self.n_formants_ecog]
+                            )[1]
+                        ) ** 2 * freq_single_formant_weight
+                    elif self.amp_energy == 3:
+                        tmp_diff = (
+                            df_norm_torch(
+                                components_guide[key][:, : self.n_formants_ecog]
+                            )[1]
+                            - df_norm_torch(
+                                components_ecog[key][:, : self.n_formants_ecog]
+                            )[1]
+                        ) ** 2 * freq_single_formant_weight + (
+                            (
                                 components_guide[key][:, : self.n_formants_ecog]
                                 - components_ecog[key][:, : self.n_formants_ecog]
-                            ) ** 2 * freq_single_formant_weight
-                        diff = (
-                            alpha["amplitude_formants_hamon"]
-                            * 400
-                            * torch.mean(tmp_diff * weight)
+                            )
+                            ** 2
+                            * freq_single_formant_weight
                         )
+                    else:
+                        tmp_diff = (
+                            components_guide[key][:, : self.n_formants_ecog]
+                            - components_ecog[key][:, : self.n_formants_ecog]
+                        ) ** 2 * freq_single_formant_weight
+                    diff = (
+                        alpha["amplitude_formants_hamon"]
+                        * 400
+                        * torch.mean(tmp_diff * weight)
+                    )
                     diff = self.flooding(
                         diff,
                         alpha["amplitude_formants_hamon"]
@@ -1235,52 +1066,48 @@ class Model(nn.Module):
                         * consonant_weight
                         * loudness_db_norm_weight
                     )
-                    if False:
-                        diff = self.lae6(
-                            components_guide[key], components_ecog[key], reweight=weight
-                        )
+
+                    tmp_target = torch.cat(
+                        [
+                            components_guide[key][:, : self.n_formants_ecog],
+                            components_guide[key][:, -self.n_formants_noise :],
+                        ],
+                        dim=1,
+                    )
+                    tmp_ecog = components_ecog[key]
+                    if self.amp_energy == 1:
+                        tmp_diff = (
+                            df_norm_torch(
+                                (
+                                    components_guide["loudness"].expand_as(
+                                        tmp_target
+                                    )
+                                    * tmp_target
+                                )
+                            )[1]
+                            - df_norm_torch(
+                                (
+                                    components_guide["loudness"].expand_as(tmp_ecog)
+                                    * tmp_ecog
+                                )
+                            )[1]
+                        ) ** 2 * freq_single_formant_weight
+                    elif self.amp_energy == 2:
+                        tmp_diff = (
+                            df_norm_torch(tmp_target)[1]
+                            - df_norm_torch(tmp_ecog)[1]
+                        ) ** 2 * freq_single_formant_weight
+                    elif self.amp_energy == 3:
+                        tmp_diff = (
+                            df_norm_torch(tmp_target)[1]
+                            - df_norm_torch(tmp_ecog)[1]
+                        ) ** 2 * freq_single_formant_weight + (
+                            tmp_target - tmp_ecog
+                        ) ** 2 * freq_single_formant_weight
                     else:
-                        tmp_target = torch.cat(
-                            [
-                                components_guide[key][:, : self.n_formants_ecog],
-                                components_guide[key][:, -self.n_formants_noise :],
-                            ],
-                            dim=1,
-                        )
-                        tmp_ecog = components_ecog[key]
-                        if self.amp_energy == 1:
-                            tmp_diff = (
-                                df_norm_torch(
-                                    (
-                                        components_guide["loudness"].expand_as(
-                                            tmp_target
-                                        )
-                                        * tmp_target
-                                    )
-                                )[1]
-                                - df_norm_torch(
-                                    (
-                                        components_guide["loudness"].expand_as(tmp_ecog)
-                                        * tmp_ecog
-                                    )
-                                )[1]
-                            ) ** 2 * freq_single_formant_weight
-                        elif self.amp_energy == 2:
-                            tmp_diff = (
-                                df_norm_torch(tmp_target)[1]
-                                - df_norm_torch(tmp_ecog)[1]
-                            ) ** 2 * freq_single_formant_weight
-                        elif self.amp_energy == 3:
-                            tmp_diff = (
-                                df_norm_torch(tmp_target)[1]
-                                - df_norm_torch(tmp_ecog)[1]
-                            ) ** 2 * freq_single_formant_weight + (
-                                tmp_target - tmp_ecog
-                            ) ** 2 * freq_single_formant_weight
-                        else:
-                            tmp_diff = (
-                                tmp_target - tmp_ecog
-                            ) ** 2 * freq_single_formant_weight
+                        tmp_diff = (
+                            tmp_target - tmp_ecog
+                        ) ** 2 * freq_single_formant_weight
                     diff = (
                         alpha["amplitude_formants_noise"]
                         * 400
@@ -1959,7 +1786,6 @@ class Model(nn.Module):
                                 dim=1,
                             )
 
-                        # Lae += self.lae(rec,spec,tracker=tracker)#torch.mean((rec - spec).abs())
                         rec = self.decoder.forward(
                             components_copy,
                             enable_noise_excitation=True if self.wavebased else True,

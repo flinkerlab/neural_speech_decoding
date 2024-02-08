@@ -29,7 +29,6 @@ def spsi(msgram, fftsize, hop_length):
     m_win = scipy.signal.hanning(
         fftsize, sym=True
     )  # assumption here that hann was used to create the frames of the spectrogram
-
     # processes one frame of audio at a time
     for i in range(numFrames):
         m_mag = msgram[:, i]
@@ -39,25 +38,21 @@ def spsi(msgram, fftsize, hop_length):
                 beta = m_mag[j]
                 gamma = m_mag[j + 1]
                 denom = alpha - 2 * beta + gamma
-
                 if denom != 0:
                     p = 0.5 * (alpha - gamma) / denom
                 else:
                     p = 0
-
-                # phaseRate=2*math.pi*(j-1+p)/fftsize;    #adjusted phase rate
+                # phaseRate=2*math.pi*(j-1+p)/fftsize; adjusted phase rate
                 phaseRate = 2 * math.pi * (j + p) / fftsize
                 # adjusted phase rate
                 m_phase[j] = m_phase[j] + hop_length * phaseRate
                 # phase accumulator for this peak bin
                 peakPhase = m_phase[j]
-
                 # If actual peak is to the right of the bin freq
                 if p > 0:
                     # First bin to right has pi shift
                     bin = j + 1
                     m_phase[bin] = peakPhase + math.pi
-
                     # Bins to left have shift of pi
                     bin = j - 1
                     while (bin > 1) and (
@@ -89,10 +84,8 @@ def spsi(msgram, fftsize, hop_length):
                     while (bin > 1) and (m_mag[bin] < m_mag[bin + 1]):  # until trough
                         m_phase[bin] = peakPhase
                         bin = bin - 1
-
             # end ops for peaks
         # end loop over fft bins with
-
         magphase = m_mag * np.exp(
             1j * m_phase
         )  # reconstruct with new phase (elementwise mult)
@@ -157,11 +150,6 @@ def voicing_coloring(sample, amplitude):
 
 
 def color_spec(spec, components, n_mels):
-    #clrs = ["g", "y", "b", "m", "c"]
-    #f0 = (components["f0"] * n_mels).int().clamp(min=0, max=n_mels - 1)
-    #formants_freqs = (
-    #    (components["freq_formants_hamon"] * n_mels).int().clamp(min=0, max=n_mels - 1)
-    #)
     sample_in = spec
     sample_in_color_voicing = sample_in.clone()
     sample_in_color_voicing = voicing_coloring(
@@ -171,11 +159,6 @@ def color_spec(spec, components, n_mels):
     sample_in_color_hamon_voicing = voicing_coloring(
         sample_in_color_hamon_voicing, components["amplitudes_h"]
     )
-    # sample_in_color_freq = sample_in.clone()
-    # sample_in_color_freq = sample_in_color_freq/2
-    # sample_in_color_freq = freq_coloring(sample_in_color_freq,f0,'r')
-    # for j in range(formants_freqs.shape[1]):
-    #    sample_in_color_freq = freq_coloring(sample_in_color_freq,formants_freqs[:,j].unsqueeze(1),clrs[j])
     return sample_in_color_voicing, sample_in_color_hamon_voicing
 
 
@@ -203,7 +186,7 @@ def subfigure_plot(
     ]
     for key in components.keys():
         if not isinstance(components[key], torch.Tensor):
-            components[key] = torch.Tensor(components[key])#.to(device)
+            components[key] = torch.Tensor(components[key])
     
     if formant_line:
 
@@ -228,7 +211,6 @@ def subfigure_plot(
                 a_min=0, a_max=n_mels - 1)
         formants_freqs_hz = components["freq_formants_" + which_formant + "_hz"]
         if ecog is not None:
-            #f0_ecog = (ecog["f0"] * n_mels).clamp(min=0, max=n_mels - 1)
             f0_hz_ecog = (ecog["f0_hz"]).clamp(min=0)
 
         if linear:
@@ -236,8 +218,6 @@ def subfigure_plot(
                 f0 = hz2ind(f0_hz, n_fft).clamp(min=0, max=n_fft - 1)
             except:
                 f0 = np.clip(hz2ind(f0_hz, n_fft), a_min=0, a_max=n_fft - 1)
-            if ecog is not None:
-                f0_ecog = hz2ind(f0_hz_ecog, n_fft).clamp(min=0, max=n_fft - 1)
         try:
             f0 = f0.squeeze().detach().cpu().numpy()
         except:
@@ -334,8 +314,6 @@ def subfigure_plot(
                     .cpu()
                     .numpy()
                 )
-                # minimum = (formants_freqs[:,i] - components['bandwidth_formants_'+which_formant][:,i]/2).squeeze().detach().cpu().numpy()
-                # maximum = (formants_freqs[:,i] + components['bandwidth_formants_'+which_formant][:,i]/2).squeeze().detach().cpu().numpy()
             ax.fill_between(
                 range(minimum.shape[0]),
                 minimum,
@@ -391,7 +369,6 @@ def subfigure_plot(
                     color="tab:gray",
                     alpha=0.2,
                 )
-        # ax.legend()
     else:
         if title == "loudness":
             
@@ -455,8 +432,6 @@ def subfigure_plot(
                         color=clrs[i],
                         linestyle="--",
                     )
-            # ax.plot(((torchaudio.transforms.AmplitudeToDB()(comp)+100)*2).squeeze().detach().cpu().numpy().T,linewidth=2,linestyle='--')
-
         elif title == "alpha":
             alpha = components["amplitudes"]
             if ecog is not None:
@@ -468,14 +443,12 @@ def subfigure_plot(
                 vmin=0.0,
                 vmax=1.0,
             )
-            # for i in range(alpha.shape[1]):
             ax.plot(
                 200 * alpha[:, 0].squeeze().detach().cpu().numpy(),
                 linewidth=2,
                 color=clrs[0],
             )
             if ecog is not None:
-                # for i in range(alpha.shape[1]):
                 ax.plot(
                     200 * alpha_ecog[:, 0].squeeze().detach().cpu().numpy(),
                     linewidth=2,
@@ -586,7 +559,6 @@ def save_sample(
             )
         )
         plt.setp(axs, yticks=loc, yticklabels=["250", "500", "1k", "2k", "4k", "8k"])
-        # import pdb; pdb.set_trace()
         for i in range(0, sample.shape[0], 1):
             sample_in = sample[i : np.minimum(i + 1, sample.shape[0])]
             sample_in_denoise = (
@@ -618,7 +590,7 @@ def save_sample(
             
             rec = decoder(components, onstage=on_stage_in)
             decoder.return_wave = True
-            rec_denoise, rec_denoise_wave = decoder(
+            rec_denoise, _ = decoder(
                 components, enable_bgnoise=False, onstage=on_stage_in
             )
             decoder.return_wave = False
@@ -658,7 +630,7 @@ def save_sample(
                             ecog_in,
                             seq_out_start=seq_out_start,
                             seq_len=128,
-                        )  # ,gender=gender_in)
+                        )
                     else:
                         if (
                             sample.shape[0] > 50
@@ -849,7 +821,6 @@ def save_sample(
                     n_fft=n_fft,
                 )
 
-        # sample_in_all = sample_in_all.repeat(1,3,1,1)*0.5+0.5
         if ecog_encoder is not None or encoder2 is not None:
             resultsample = torch.cat([sample_in_all, rec_all, rec_ecog_all], dim=0)
         else:
@@ -859,19 +830,16 @@ def save_sample(
                 rec_all = F.pad(rec_all, (0,0,2,0 ), mode='replicate')
                 resultsample = torch.cat([sample_in_all, rec_all], dim=0)
         resultsample = resultsample.transpose(-2, -1)
-        # import pdb;pdb.set_trace()
         if mode == "train":
             f = os.path.join(path, "result_train_%d_%s.png" % (epoch + 1, suffix))
             f2 = os.path.join(path, "sample_train_%d_%s.png" % (epoch + 1, suffix))
         if mode == "test":
             f = os.path.join(path, "result_%d_%s.png" % (epoch + 1, suffix))
             f2 = os.path.join(path, "sample_%d_%s.png" % (epoch + 1, suffix))
-        # import pdb;pdb.set_trace()
 
-        fig.savefig(f, bbox_inches="tight")  # ,dpi=80)
+        fig.savefig(f, bbox_inches="tight")
         plt.close(fig)
 
-        # scipy.io.wavfile.write(f2+'denoisewave.wav',16000,torch.cat(rec_denoise_wave_all.unbind(),1)[0].detach().cpu().numpy())
         if ecog_encoder is not None or encoder2 is not None:
             scipy.io.wavfile.write(
                 f2 + "denoiseecogwave.wav",
@@ -1064,7 +1032,6 @@ def save_sample(
                 components_all_np[i] = (
                     torch.cat(components_all_np[i], 0).detach().cpu().numpy()
                 )
-            # components_all_np = {i:j for i,j in c.items().detach().cpu().numpy() for c in components_all}
             if ecog_encoder is not None or encoder2 is not None:
                 components_ecog_all_np = {}
                 for i, j in components_ecog_all[0].items():
@@ -1076,7 +1043,6 @@ def save_sample(
                     components_ecog_all_np[i] = (
                         torch.cat(components_ecog_all_np[i], 0).detach().cpu().numpy()
                     )
-                # components_ecog_all_np = {i:j.clone() for i,j in components_ecog_all.items().detach().cpu().numpy()}
             save_dict = {
                 "components": components_all_np,
                 "on_stage": on_stage_wider.detach().cpu().numpy(),
@@ -1114,8 +1080,6 @@ def save_sample(
                 np.save(f2 + "_sample_npy_%d" % (epoch + 1), save_dict)
             except:
                 pass
-
-        return
 
 
 if __name__ == "__main__":

@@ -260,7 +260,6 @@ class Model(nn.Module):
         patient="NY742",
         batch_size=8,
         rdropout=0,
-        tmpsavepath="",
         return_filtershape=False,
         spec_fr=125,
         gender_patient="Female",
@@ -271,8 +270,6 @@ class Model(nn.Module):
     ):
         super(Model, self).__init__()
         self.component_regression = component_regression
-        self.tmpsavepath = tmpsavepath
-        print("component_regression", component_regression)
         self.use_stoi = use_stoi
         self.amp_minmax = amp_minmax
         self.consistency_loss = consistency_loss
@@ -377,21 +374,8 @@ class Model(nn.Module):
             larger_capacity=larger_capacity,
             unified=unified,
         )
-        # if Visualize and A2A:
-        if A2A:
-            self.encoder2 = ENCODERS["EncoderFormantVis2D"](
-                n_mels=spec_chans,
-                n_formants=n_formants,
-                n_formants_noise=n_formants_noise,
-                wavebased=wavebased,
-                hop_length=128,
-                n_fft=n_fft,
-                noise_db=noise_db,
-                max_db=max_db,
-                broud=False,
-                power_synth=power_synth,
-            )
-        if with_ecog and not A2A:
+
+        if with_ecog:
             self.ecog_encoder = ECOG_ENCODER[ecog_encoder_name](
                     n_mels=spec_chans,
                     n_formants=n_formants_ecog,
@@ -444,24 +428,6 @@ class Model(nn.Module):
             else:
                 return rec
 
-    def generate_fromspec(
-        self,
-        spec,
-        return_components=False,
-        x_denoise=None,
-        duomask=False,
-        gender="Female",
-        onstage=None,
-    ):
-        components = self.encoder(
-            spec, x_denoise=x_denoise, duomask=duomask, gender=gender
-        )
-        rec = self.decoder.forward(components, onstage)
-        if return_components:
-            return rec, components
-        else:
-            return rec
-
     def encode(
         self,
         spec,
@@ -471,6 +437,7 @@ class Model(nn.Module):
         x_amp=None,
         gender="Female",
     ):
+        '''encode the spectrogram to components using the speech encoder'''
         components = self.encoder(
             spec,
             x_denoise=x_denoise,
@@ -602,7 +569,11 @@ class Model(nn.Module):
         on_stage_wider,
         on_stage,
     ):
-        if self.spec_sup and not self.A2A:
+        """
+        the core function for ECoG to Speech decoding (step2)
+        calculate component loss with spectrogram encoded components and ECoG decoded components
+        """
+        if self.spec_sup:
             Lrec = 80 * self.lae(
                     rec, spec, tracker=tracker, amp=False, suffix="1", MTF=False
                 )
@@ -805,7 +776,7 @@ class Model(nn.Module):
                     torch.sign(components_guide["amplitudes"][:, 1:] - 0.5) * 0.5 + 0.5
                 )
             else:
-                consonant_weight = 1  # 100*(torch.sign(components_guide['amplitudes'][:,1:]-0.5)*0.5+0.5)
+                consonant_weight = 1
             for key in [
                 "loudness",
                 "f0_hz",
@@ -1408,13 +1379,597 @@ class Model(nn.Module):
         Loss += Lfreqorder
         return Loss, tracker
 
+    
+    def run_a2a_loss(self,
+        rec,
+        spec,x_amp_from_denoise,x_denoise,x_mel,x_amp,
+        components,
+        tracker,
+        voice,unvoice,semivoice,plosive,fricative,
+        duomask,hamonic_bias,pitch_aug,epoch_current,
+        gender,pitch_label,formant_label,
+        on_stage_wider,
+        on_stage):
+        """
+        the core function for Speech to Speech decoding (step1)
+        calculate unsupervised and supervised losses within a2a
+        """
+        freq_cord2 = torch.arange(self.spec_chans + 1).reshape(
+            [1, 1, 1, self.spec_chans + 1]
+        ) / (1.0 * self.spec_chans)
+        freq_linear_reweighting = (
+            1
+            if self.wavebased
+            else (
+                inverse_mel_scale(freq_cord2[..., 1:])
+                - inverse_mel_scale(freq_cord2[..., :-1])
+            )
+            / 440
+            * 7
+        )
+        Lae = 8 * self.lae(
+            rec * freq_linear_reweighting,
+            spec * freq_linear_reweighting,
+            tracker=tracker,
+            suffix="1",
+        )
+        if self.wavebased:
+            spec_amp = amplitude(spec, self.noise_db, self.max_db).transpose(
+                -2, -1
+            )
+            rec_amp = amplitude(rec, self.noise_db, self.max_db).transpose(
+                -2, -1
+            )
+            if self.use_stoi:
+                if spec_amp.shape[-2] == 256:
+                    stoi_loss = (
+                        self.stoi_loss_female(
+                            rec_amp,
+                            spec_amp,
+                            on_stage,
+                            suffix="stoi",
+                            tracker=tracker,
+                        )
+                        * 10
+                    )
+                else:
+                    stoi_loss = (
+                        self.stoi_loss_male(
+                            rec_amp,
+                            spec_amp,
+                            on_stage,
+                            suffix="stoi",
+                            tracker=tracker,
+                        )
+                        * 10
+                    )
+                Lae += stoi_loss
+
+            freq_cord2 = torch.arange(128 + 1).reshape([1, 1, 1, 128 + 1]) / (
+                1.0 * 128
+            )
+            freq_linear_reweighting2 = (
+                (
+                    inverse_mel_scale(freq_cord2[..., 1:])
+                    - inverse_mel_scale(freq_cord2[..., :-1])
+                )
+                / 440
+                * 7
+            )
+            spec_mel = to_db(
+                torchaudio.transforms.MelScale(f_max=8000, n_stft=self.n_fft)(
+                    spec_amp
+                ).transpose(-2, -1),
+                self.noise_db,
+                self.max_db,
+            )
+            rec_mel = to_db(
+                torchaudio.transforms.MelScale(f_max=8000, n_stft=self.n_fft)(
+                    rec_amp
+                ).transpose(-2, -1),
+                self.noise_db,
+                self.max_db,
+            )
+            Lae += 8 * self.lae(
+                rec_mel * freq_linear_reweighting2,
+                spec_mel * freq_linear_reweighting2,
+                tracker=tracker,
+                amp=False,
+                suffix="2",
+            )
+
+        if self.do_mel_guide:
+            rec_mel = self.decoder_mel.forward(components)
+            freq_linear_reweighting_mel = (
+                (
+                    inverse_mel_scale(freq_cord2[..., 1:])
+                    - inverse_mel_scale(freq_cord2[..., :-1])
+                )
+                / 440
+                * 7
+            )
+            
+            Lae_mel = 4 * self.lae(
+                rec_mel * freq_linear_reweighting_mel,
+                x_mel * freq_linear_reweighting_mel,
+                tracker=None,
+            )
+            tracker.update(dict(Lae_mel=Lae_mel))
+            Lae += Lae_mel
+       
+        if self.alpha_sup and voice is not None and unvoice is not None:
+            Lsilence = 10 * (
+                (components["amplitudes"][:, 0:1][on_stage == 0] - 0.0) ** 2
+            )
+            Lsilence = (
+                Lsilence.mean() if len(Lsilence) != 0 else torch.tensor(0.0)
+            )
+            Lvoice = 10 * (
+                (components["amplitudes"][:, 0:1][voice == 1] - 1.0) ** 2
+            )
+            Lvoice = Lvoice.mean() if len(Lvoice) != 0 else torch.tensor(0.0)
+            Lunvoice = 10 * (
+                (components["amplitudes"][:, 1:2][unvoice == 1] - 1.0) ** 2
+            )
+            Lunvoice = (
+                Lunvoice.mean() if len(Lunvoice) != 0 else torch.tensor(0.0)
+            )
+            Lsemivoice = 10 * (
+                F.relu(0.3 - components["amplitudes"][:, 1:2][semivoice == 1])
+                ** 2
+            )
+        
+            Lsemivoice = (
+                Lsemivoice.mean() if len(Lsemivoice) != 0 else torch.tensor(0.0)
+            )
+            Lplosive = 4 * (
+                (
+                    components["freq_formants_noise_hz"][:, -1:][plosive == 1]
+                    / 4000
+                    - 4000.0 / 4000
+                )
+                ** 2
+            )
+            Lplosive = (
+                Lplosive.mean() if len(Lplosive) != 0 else torch.tensor(0.0)
+            )
+            Lplosiveband = 4 * (
+                (
+                    components["bandwidth_formants_noise_hz"][:, -1:][
+                        plosive == 1
+                    ]
+                    / 8000
+                    - 8000.0 / 8000
+                )
+                ** 2
+            )
+            Lplosiveband = (
+                Lplosiveband.mean()
+                if len(Lplosiveband) != 0
+                else torch.tensor(0.0)
+            )
+            Lfricativeband = 4 * (
+                F.relu(
+                    components["bandwidth_formants_noise_hz"][:, -1:][
+                        fricative == 1
+                    ]
+                    / 1500.0
+                    - 1500.0 / 1500
+                )
+                ** 2
+            ) 
+            Lfricativeband = (
+                Lfricativeband.mean()
+                if len(Lfricativeband) != 0
+                else torch.tensor(0.0)
+            )
+            Lfricative = torch.tensor(0.0)
+
+            Lae += (
+                Lvoice
+                + Lunvoice
+                + Lsemivoice
+                + Lplosive
+                + Lfricative
+                + Lsilence
+                + Lplosiveband
+                + Lfricativeband
+            )
+            tracker.update(
+                dict(
+                    Lvoice=Lvoice,
+                    Lunvoice=Lunvoice,
+                    Lsemivoice=Lsemivoice,
+                    Lplosive=Lplosive,
+                    Lfricative=Lfricative,
+                    Lplosiveband=Lplosiveband,
+                    Lfricativeband=Lfricativeband,
+                )
+            )
+        if x_amp_from_denoise:
+            if self.wavebased:
+                if self.power_synth:
+                    Lloudness = (
+                        10**6
+                        * (components["loudness"] * (1 - on_stage_wider)).mean()
+                    )
+                else:
+                    Lloudness = (
+                        10**6
+                        * (components["loudness"] * (1 - on_stage_wider)).mean()
+                    )
+                tracker.update(dict(Lloudness=Lloudness))
+                Lae += Lloudness
+        else:
+            Lloudness = (
+                10**6 * (components["loudness"] * (1 - on_stage_wider)).mean()
+            )
+            tracker.update(dict(Lloudness=Lloudness))
+            Lae += Lloudness
+
+        if self.wavebased and x_denoise is not None:
+            thres = (
+                int(hz2ind(4000, self.n_fft))
+                if self.wavebased
+                else mel_scale(self.spec_chans, 4000, pt=False).astype(np.int32)
+            )
+            explosive = (
+                (
+                    torch.mean(
+                        (spec * freq_linear_reweighting)[..., thres:], dim=-1
+                    )
+                    > torch.mean(
+                        (spec * freq_linear_reweighting)[..., :thres], dim=-1
+                    )
+                )
+                .to(torch.float32)
+                .unsqueeze(-1)
+            )
+            rec_denoise = self.decoder.forward(
+                components,
+                enable_hamon_excitation=True,
+                enable_noise_excitation=True,
+                enable_bgnoise=False,
+                onstage=on_stage,
+            )
+            Lae_denoise = 20 * self.lae(
+                rec_denoise * freq_linear_reweighting * explosive,
+                x_denoise * freq_linear_reweighting * explosive,
+            )
+            tracker.update(dict(Lae_denoise=Lae_denoise))
+            Lae += Lae_denoise
+        freq_limit = self.encoder.formant_freq_limits_abs.squeeze()
+
+        freq_limit = (
+            hz2ind(freq_limit, self.n_fft).long()
+            if self.wavebased
+            else mel_scale(self.spec_chans, freq_limit).long()
+        )
+        if not self.wavebased:
+            n_formant_noise = (
+                components["freq_formants_noise"].shape[1]
+                - components["freq_formants_hamon"].shape[1]
+            )
+            for formant in range(
+                components["freq_formants_hamon"].shape[1] - 1, 1, -1
+            ):
+                components_copy = {i: j.clone() for i, j in components.items()}
+                components_copy["freq_formants_hamon"] = components_copy[
+                    "freq_formants_hamon"
+                ][:, :formant]
+                components_copy["freq_formants_hamon_hz"] = components_copy[
+                    "freq_formants_hamon_hz"
+                ][:, :formant]
+                components_copy["bandwidth_formants_hamon"] = components_copy[
+                    "bandwidth_formants_hamon"
+                ][:, :formant]
+                components_copy[
+                    "bandwidth_formants_hamon_hz"
+                ] = components_copy["bandwidth_formants_hamon_hz"][:, :formant]
+                components_copy["amplitude_formants_hamon"] = components_copy[
+                    "amplitude_formants_hamon"
+                ][:, :formant]
+                if duomask:
+                    components_copy["freq_formants_noise"] = torch.cat(
+                        [
+                            components_copy["freq_formants_noise"][:, :formant],
+                            components_copy["freq_formants_noise"][
+                                :, -n_formant_noise:
+                            ],
+                        ],
+                        dim=1,
+                    )
+                    components_copy["freq_formants_noise_hz"] = torch.cat(
+                        [
+                            components_copy["freq_formants_noise_hz"][
+                                :, :formant
+                            ],
+                            components_copy["freq_formants_noise_hz"][
+                                :, -n_formant_noise:
+                            ],
+                        ],
+                        dim=1,
+                    )
+                    components_copy["bandwidth_formants_noise"] = torch.cat(
+                        [
+                            components_copy["bandwidth_formants_noise"][
+                                :, :formant
+                            ],
+                            components_copy["bandwidth_formants_noise"][
+                                :, -n_formant_noise:
+                            ],
+                        ],
+                        dim=1,
+                    )
+                    components_copy["bandwidth_formants_noise_hz"] = torch.cat(
+                        [
+                            components_copy["bandwidth_formants_noise_hz"][
+                                :, :formant
+                            ],
+                            components_copy["bandwidth_formants_noise_hz"][
+                                :, -n_formant_noise:
+                            ],
+                        ],
+                        dim=1,
+                    )
+                    components_copy["amplitude_formants_noise"] = torch.cat(
+                        [
+                            components_copy["amplitude_formants_noise"][
+                                :, :formant
+                            ],
+                            components_copy["amplitude_formants_noise"][
+                                :, -n_formant_noise:
+                            ],
+                        ],
+                        dim=1,
+                    )
+
+                rec = self.decoder.forward(
+                    components_copy,
+                    enable_noise_excitation=True if self.wavebased else True,
+                    onstage=on_stage,
+                )
+                Lae += 1 * self.lae(
+                    (rec * freq_linear_reweighting),
+                    (spec * freq_linear_reweighting),
+                    tracker=tracker,
+                )
+        else:
+            Lamp = 30 * torch.mean(
+                F.relu(
+                    -components["amplitude_formants_hamon"][:, 0:3]
+                    + components["amplitude_formants_hamon"][:, 1:4]
+                )
+                * (
+                    components["amplitudes"][:, 0:1]
+                    > components["amplitudes"][:, 1:2]
+                ).float()
+            )
+            tracker.update(dict(Lamp=Lamp))
+            Lae += Lamp
+        tracker.update(dict(Lae=Lae))
+        thres = (
+            int(hz2ind(4000, self.n_fft))
+            if self.wavebased
+            else mel_scale(self.spec_chans, 4000, pt=False).astype(np.int32)
+        )
+        explosive = (
+            torch.sign(
+                torch.mean(
+                    (spec * freq_linear_reweighting)[..., thres:], dim=-1
+                )
+                - torch.mean(
+                    (spec * freq_linear_reweighting)[..., :thres], dim=-1
+                )
+            )
+            * 0.5
+            + 0.5
+        )
+        Lexp = (
+            torch.mean(
+                (
+                    components["amplitudes"][:, 0:1]
+                    - components["amplitudes"][:, 1:2]
+                )
+                * explosive
+            )
+            * 100
+        )
+        tracker.update(dict(Lexp=Lexp))
+        Lae += Lexp
+        if hamonic_bias:
+            hamonic_loss = 1000 * torch.mean(
+                (1 - components["amplitudes"][:, 0]) * on_stage
+            )
+            Lae += hamonic_loss
+        if pitch_aug:
+            pitch_shift = 2 ** (
+                -1.5
+                + 3
+                * torch.rand([components["f0_hz"].shape[0]]).to(torch.float32)
+            ).reshape(
+                [components["f0_hz"].shape[0], 1, 1]
+            )
+            components["f0_hz"] = (components["f0_hz"] * pitch_shift).clamp(
+                min=88, max=300
+            )
+            rec_shift = self.decoder.forward(components, onstage=on_stage)
+            components_enc = self.encoder(
+                rec_shift,
+                duomask=duomask,
+                x_denoise=x_denoise,
+                noise_level=None,
+                x_amp=x_amp,
+                gender=gender,
+            )
+            Lf0 = torch.mean(
+                (components_enc["f0_hz"] / 200 - components["f0_hz"] / 200) ** 2
+            )
+            rec_cycle = self.decoder.forward(components_enc, onstage=on_stage)
+            Lae += self.lae(
+                rec_shift * freq_linear_reweighting,
+                rec_cycle * freq_linear_reweighting,
+                tracker=tracker,
+            )
+        else:
+            Lf0 = torch.tensor([0.0])
+        tracker.update(dict(Lf0=Lf0))
+        
+        spec = spec.squeeze(dim=1).permute(0, 2, 1)  # B * f * T
+        if self.wavebased:
+            if self.power_synth:
+                hamonic_components_diff = (
+                    compdiffd2(components["freq_formants_hamon_hz"] * 1.5)
+                    + compdiffd2(components["f0_hz"] * 2)
+                    + compdiff(
+                        components["bandwidth_formants_noise_hz"][
+                            :, components["freq_formants_hamon_hz"].shape[1] :
+                        ]
+                        / 5
+                    )
+                    + compdiff(
+                        components["freq_formants_noise_hz"][
+                            :, components["freq_formants_hamon_hz"].shape[1] :
+                        ]
+                        / 5
+                    )
+                    + compdiff(components["amplitudes"]) * 750.0
+                    + compdiffd2(components["amplitude_formants_hamon"])
+                    * 1500.0
+                    + compdiffd2(components["amplitude_formants_noise"])
+                    * 1500.0
+                )
+            else:
+                hamonic_components_diff = (
+                    compdiffd2(components["freq_formants_hamon_hz"] * 1.5)
+                    + compdiffd2(components["f0_hz"] * 2)
+                    + compdiff(
+                        components["bandwidth_formants_noise_hz"][
+                            :, components["freq_formants_hamon_hz"].shape[1] :
+                        ]
+                        / 5
+                    )
+                    + compdiff(
+                        components["freq_formants_noise_hz"][
+                            :, components["freq_formants_hamon_hz"].shape[1] :
+                        ]
+                        / 5
+                    )
+                    + compdiff(components["amplitudes"]) * 750.0
+                    + compdiffd2(components["amplitude_formants_hamon"])
+                    * 1500.0
+                    + compdiffd2(components["amplitude_formants_noise"])
+                    * 1500.0
+                )
+        else:
+            hamonic_components_diff = (
+                compdiff(
+                    components["freq_formants_hamon_hz"] * (1 - on_stage_wider)
+                )
+                + compdiff(components["f0_hz"] * (1 - on_stage_wider))
+                + compdiff(components["amplitude_formants_hamon"]) * 750.0
+                + compdiff(components["amplitude_formants_noise"]) * 750.0
+            )
+        Ldiff = torch.mean(hamonic_components_diff) / 2000.0
+        tracker.update(dict(Ldiff=Ldiff))
+        Lae += Ldiff
+        Lfreqorder = torch.mean(
+            F.relu(
+                components["freq_formants_hamon_hz"][:, :-1]
+                - components["freq_formants_hamon_hz"][:, 1:]
+            )
+        )
+        if formant_label is not None:
+            formant_label = formant_label[:, 0].permute(0, 2, 1)
+            
+            Lformant = torch.mean(
+                (
+                    (
+                        components["freq_formants_hamon_hz"][:, :-2]
+                        - formant_label[:, :-2]
+                    )
+                    * on_stage.expand_as(formant_label[:, :-2])
+                )
+                ** 2
+            )
+            Lformant += (
+                torch.mean(
+                    (
+                        (
+                            components["freq_formants_hamon_hz"][:, 0:1]
+                            - formant_label[:, 0:1]
+                        )
+                        * on_stage.expand_as(formant_label[:, 0:1])
+                    )
+                    ** 2
+                )
+                * 6
+            )
+            Lformant += (
+                torch.mean(
+                    (
+                        (
+                            components["freq_formants_hamon_hz"][:, 1:2]
+                            - formant_label[:, 1:2]
+                        )
+                        * on_stage.expand_as(formant_label[:, 1:2])
+                    )
+                    ** 2
+                )
+                * 3
+            )
+            Lformant += (
+                torch.mean(
+                    (
+                        (
+                            components["freq_formants_hamon_hz"][:, 2:3]
+                            - formant_label[:, 2:3]
+                        )
+                        * on_stage.expand_as(formant_label[:, 1:2])
+                    )
+                    ** 2
+                )
+                * 1.5
+            )
+
+            weight_decay_formant = piecewise_linear(
+                epoch_current, start_decay=20, end_decay=40
+            )
+            Lformant *= weight_decay_formant * 0.000003
+            tracker.update(dict(Lformant=Lformant))
+            tracker.update(
+                dict(
+                    weight_decay_formant=torch.FloatTensor(
+                        [weight_decay_formant]
+                    )
+                )
+            )
+        else:
+            Lformant = torch.tensor([0.0])
+        if pitch_label is not None:
+            Lpitch = torch.mean(
+                (
+                    (components["f0_hz"] - pitch_label)
+                    * on_stage.expand_as(pitch_label)
+                )
+                ** 2
+            )
+            weight_decay_pitch = piecewise_linear(
+                epoch_current, start_decay=20, end_decay=40
+            )
+            Lpitch *= weight_decay_pitch * 0.0004
+            tracker.update(dict(Lpitch=Lpitch))
+        else:
+            Lpitch = torch.tensor([0.0])
+        return Lae + Lf0 + Lfreqorder + Lformant + Lloudness + Lpitch, tracker
+
+       
     def forward(
         self,
         spec,
         ecog,
         on_stage,
         on_stage_wider,
-        gt_comp=None,
         ae=True,
         tracker=None,
         encoder_guide=True,
@@ -1422,7 +1977,6 @@ class Model(nn.Module):
         x_denoise=None,
         pitch_aug=False,
         duomask=False,
-        debug=False,
         x_amp=None,
         hamonic_bias=False,
         x_amp_from_denoise=False,
@@ -1432,18 +1986,14 @@ class Model(nn.Module):
         semivoice=None,
         plosive=None,
         fricative=None,
-        t1=None,
-        t2=None,
         formant_label=None,
         pitch_label=None,
-        intensity_label=None,
-        epoch_record=0,
         epoch_current=0,
         n_iter=0,
         save_path="",
     ):
         if not self.Visualize:
-            if ae:
+            if ae: # if auto encoding: do speech to speech auto-encoding (step1)
                 self.encoder.requires_grad_(True)
                 components = self.encoder(
                     spec,
@@ -1456,582 +2006,17 @@ class Model(nn.Module):
                 rec = self.decoder.forward(
                     components, on_stage, n_iter=n_iter, save_path=save_path
                 )
-                freq_cord2 = torch.arange(self.spec_chans + 1).reshape(
-                    [1, 1, 1, self.spec_chans + 1]
-                ) / (1.0 * self.spec_chans)
-                freq_linear_reweighting = (
-                    1
-                    if self.wavebased
-                    else (
-                        inverse_mel_scale(freq_cord2[..., 1:])
-                        - inverse_mel_scale(freq_cord2[..., :-1])
-                    )
-                    / 440
-                    * 7
-                )
-                Lae = 8 * self.lae(
-                    rec * freq_linear_reweighting,
-                    spec * freq_linear_reweighting,
-                    tracker=tracker,
-                    suffix="1",
-                )
-                if self.wavebased:
-                    spec_amp = amplitude(spec, self.noise_db, self.max_db).transpose(
-                        -2, -1
-                    )
-                    rec_amp = amplitude(rec, self.noise_db, self.max_db).transpose(
-                        -2, -1
-                    )
-                    if self.use_stoi:
-                        if spec_amp.shape[-2] == 256:
-                            stoi_loss = (
-                                self.stoi_loss_female(
-                                    rec_amp,
-                                    spec_amp,
-                                    on_stage,
-                                    suffix="stoi",
-                                    tracker=tracker,
-                                )
-                                * 10
-                            )
-                        else:
-                            stoi_loss = (
-                                self.stoi_loss_male(
-                                    rec_amp,
-                                    spec_amp,
-                                    on_stage,
-                                    suffix="stoi",
-                                    tracker=tracker,
-                                )
-                                * 10
-                            )
-                        Lae += stoi_loss
-
-                    freq_cord2 = torch.arange(128 + 1).reshape([1, 1, 1, 128 + 1]) / (
-                        1.0 * 128
-                    )
-                    freq_linear_reweighting2 = (
-                        (
-                            inverse_mel_scale(freq_cord2[..., 1:])
-                            - inverse_mel_scale(freq_cord2[..., :-1])
-                        )
-                        / 440
-                        * 7
-                    )
-                    spec_mel = to_db(
-                        torchaudio.transforms.MelScale(f_max=8000, n_stft=self.n_fft)(
-                            spec_amp
-                        ).transpose(-2, -1),
-                        self.noise_db,
-                        self.max_db,
-                    )
-                    rec_mel = to_db(
-                        torchaudio.transforms.MelScale(f_max=8000, n_stft=self.n_fft)(
-                            rec_amp
-                        ).transpose(-2, -1),
-                        self.noise_db,
-                        self.max_db,
-                    )
-                    Lae += 8 * self.lae(
-                        rec_mel * freq_linear_reweighting2,
-                        spec_mel * freq_linear_reweighting2,
-                        tracker=tracker,
-                        amp=False,
-                        suffix="2",
-                    )
-
-                if self.do_mel_guide:
-                    rec_mel = self.decoder_mel.forward(components)
-                    freq_linear_reweighting_mel = (
-                        (
-                            inverse_mel_scale(freq_cord2[..., 1:])
-                            - inverse_mel_scale(freq_cord2[..., :-1])
-                        )
-                        / 440
-                        * 7
-                    )
-                    Lae_mel = 4 * self.lae(
-                        rec_mel * freq_linear_reweighting_mel,
-                        x_mel * freq_linear_reweighting_mel,
-                        tracker=None,
-                    )
-                    tracker.update(dict(Lae_mel=Lae_mel))
-                    Lae += Lae_mel
-                if self.alpha_sup and voice is not None and unvoice is not None:
-                    Lsilence = 10 * (
-                        (components["amplitudes"][:, 0:1][on_stage == 0] - 0.0) ** 2
-                    )
-                    Lsilence = (
-                        Lsilence.mean() if len(Lsilence) != 0 else torch.tensor(0.0)
-                    )
-                    Lvoice = 10 * (
-                        (components["amplitudes"][:, 0:1][voice == 1] - 1.0) ** 2
-                    )
-                    Lvoice = Lvoice.mean() if len(Lvoice) != 0 else torch.tensor(0.0)
-                    Lunvoice = 10 * (
-                        (components["amplitudes"][:, 1:2][unvoice == 1] - 1.0) ** 2
-                    )
-                    Lunvoice = (
-                        Lunvoice.mean() if len(Lunvoice) != 0 else torch.tensor(0.0)
-                    )
-                    Lsemivoice = 10 * (
-                        F.relu(0.3 - components["amplitudes"][:, 1:2][semivoice == 1])
-                        ** 2
-                    )
-                    Lsemivoice = (
-                        Lsemivoice.mean() if len(Lsemivoice) != 0 else torch.tensor(0.0)
-                    )
-                    Lplosive = 4 * (
-                        (
-                            components["freq_formants_noise_hz"][:, -1:][plosive == 1]
-                            / 4000
-                            - 4000.0 / 4000
-                        )
-                        ** 2
-                    )
-                    Lplosive = (
-                        Lplosive.mean() if len(Lplosive) != 0 else torch.tensor(0.0)
-                    )
-                    Lplosiveband = 4 * (
-                        (
-                            components["bandwidth_formants_noise_hz"][:, -1:][
-                                plosive == 1
-                            ]
-                            / 8000
-                            - 8000.0 / 8000
-                        )
-                        ** 2
-                    )
-                    Lplosiveband = (
-                        Lplosiveband.mean()
-                        if len(Lplosiveband) != 0
-                        else torch.tensor(0.0)
-                    )
-                    Lfricativeband = 4 * (
-                        F.relu(
-                            components["bandwidth_formants_noise_hz"][:, -1:][
-                                fricative == 1
-                            ]
-                            / 1500.0
-                            - 1500.0 / 1500
-                        )
-                        ** 2
-                    )
-                    Lfricativeband = (
-                        Lfricativeband.mean()
-                        if len(Lfricativeband) != 0
-                        else torch.tensor(0.0)
-                    )
-                    Lfricative = torch.tensor(0.0)
-
-                    Lae += (
-                        Lvoice
-                        + Lunvoice
-                        + Lsemivoice
-                        + Lplosive
-                        + Lfricative
-                        + Lsilence
-                        + Lplosiveband
-                        + Lfricativeband
-                    )
-                    tracker.update(
-                        dict(
-                            Lvoice=Lvoice,
-                            Lunvoice=Lunvoice,
-                            Lsemivoice=Lsemivoice,
-                            Lplosive=Lplosive,
-                            Lfricative=Lfricative,
-                            Lplosiveband=Lplosiveband,
-                            Lfricativeband=Lfricativeband,
-                        )
-                    )
-                if x_amp_from_denoise:
-                    if self.wavebased:
-                        if self.power_synth:
-                            Lloudness = (
-                                10**6
-                                * (components["loudness"] * (1 - on_stage_wider)).mean()
-                            )
-                        else:
-                            Lloudness = (
-                                10**6
-                                * (components["loudness"] * (1 - on_stage_wider)).mean()
-                            )
-                        tracker.update(dict(Lloudness=Lloudness))
-                        Lae += Lloudness
-                else:
-                    Lloudness = (
-                        10**6 * (components["loudness"] * (1 - on_stage_wider)).mean()
-                    )
-                    tracker.update(dict(Lloudness=Lloudness))
-                    Lae += Lloudness
-
-                if self.wavebased and x_denoise is not None:
-                    thres = (
-                        int(hz2ind(4000, self.n_fft))
-                        if self.wavebased
-                        else mel_scale(self.spec_chans, 4000, pt=False).astype(np.int32)
-                    )
-                    explosive = (
-                        (
-                            torch.mean(
-                                (spec * freq_linear_reweighting)[..., thres:], dim=-1
-                            )
-                            > torch.mean(
-                                (spec * freq_linear_reweighting)[..., :thres], dim=-1
-                            )
-                        )
-                        .to(torch.float32)
-                        .unsqueeze(-1)
-                    )
-                    rec_denoise = self.decoder.forward(
-                        components,
-                        enable_hamon_excitation=True,
-                        enable_noise_excitation=True,
-                        enable_bgnoise=False,
-                        onstage=on_stage,
-                    )
-                    Lae_denoise = 20 * self.lae(
-                        rec_denoise * freq_linear_reweighting * explosive,
-                        x_denoise * freq_linear_reweighting * explosive,
-                    )
-                    tracker.update(dict(Lae_denoise=Lae_denoise))
-                    Lae += Lae_denoise
-                freq_limit = self.encoder.formant_freq_limits_abs.squeeze()
-
-                freq_limit = (
-                    hz2ind(freq_limit, self.n_fft).long()
-                    if self.wavebased
-                    else mel_scale(self.spec_chans, freq_limit).long()
-                )
-                if debug:
-                    import pdb; pdb.set_trace()
-                if not self.wavebased:
-                    n_formant_noise = (
-                        components["freq_formants_noise"].shape[1]
-                        - components["freq_formants_hamon"].shape[1]
-                    )
-                    for formant in range(
-                        components["freq_formants_hamon"].shape[1] - 1, 1, -1
-                    ):
-                        components_copy = {i: j.clone() for i, j in components.items()}
-                        components_copy["freq_formants_hamon"] = components_copy[
-                            "freq_formants_hamon"
-                        ][:, :formant]
-                        components_copy["freq_formants_hamon_hz"] = components_copy[
-                            "freq_formants_hamon_hz"
-                        ][:, :formant]
-                        components_copy["bandwidth_formants_hamon"] = components_copy[
-                            "bandwidth_formants_hamon"
-                        ][:, :formant]
-                        components_copy[
-                            "bandwidth_formants_hamon_hz"
-                        ] = components_copy["bandwidth_formants_hamon_hz"][:, :formant]
-                        components_copy["amplitude_formants_hamon"] = components_copy[
-                            "amplitude_formants_hamon"
-                        ][:, :formant]
-
-                        if duomask:
-                            components_copy["freq_formants_noise"] = torch.cat(
-                                [
-                                    components_copy["freq_formants_noise"][:, :formant],
-                                    components_copy["freq_formants_noise"][
-                                        :, -n_formant_noise:
-                                    ],
-                                ],
-                                dim=1,
-                            )
-                            components_copy["freq_formants_noise_hz"] = torch.cat(
-                                [
-                                    components_copy["freq_formants_noise_hz"][
-                                        :, :formant
-                                    ],
-                                    components_copy["freq_formants_noise_hz"][
-                                        :, -n_formant_noise:
-                                    ],
-                                ],
-                                dim=1,
-                            )
-                            components_copy["bandwidth_formants_noise"] = torch.cat(
-                                [
-                                    components_copy["bandwidth_formants_noise"][
-                                        :, :formant
-                                    ],
-                                    components_copy["bandwidth_formants_noise"][
-                                        :, -n_formant_noise:
-                                    ],
-                                ],
-                                dim=1,
-                            )
-                            components_copy["bandwidth_formants_noise_hz"] = torch.cat(
-                                [
-                                    components_copy["bandwidth_formants_noise_hz"][
-                                        :, :formant
-                                    ],
-                                    components_copy["bandwidth_formants_noise_hz"][
-                                        :, -n_formant_noise:
-                                    ],
-                                ],
-                                dim=1,
-                            )
-                            components_copy["amplitude_formants_noise"] = torch.cat(
-                                [
-                                    components_copy["amplitude_formants_noise"][
-                                        :, :formant
-                                    ],
-                                    components_copy["amplitude_formants_noise"][
-                                        :, -n_formant_noise:
-                                    ],
-                                ],
-                                dim=1,
-                            )
-
-                        rec = self.decoder.forward(
-                            components_copy,
-                            enable_noise_excitation=True if self.wavebased else True,
-                            onstage=on_stage,
-                        )
-                        Lae += 1 * self.lae(
-                            (rec * freq_linear_reweighting),
-                            (spec * freq_linear_reweighting),
-                            tracker=tracker,
-                        )
-                else:
-                    Lamp = 30 * torch.mean(
-                        F.relu(
-                            -components["amplitude_formants_hamon"][:, 0:3]
-                            + components["amplitude_formants_hamon"][:, 1:4]
-                        )
-                        * (
-                            components["amplitudes"][:, 0:1]
-                            > components["amplitudes"][:, 1:2]
-                        ).float()
-                    )
-                    tracker.update(dict(Lamp=Lamp))
-                    Lae += Lamp
-                tracker.update(dict(Lae=Lae))
-                if debug:
-                    import pdb;pdb.set_trace()
-                thres = (
-                    int(hz2ind(4000, self.n_fft))
-                    if self.wavebased
-                    else mel_scale(self.spec_chans, 4000, pt=False).astype(np.int32)
-                )
-                explosive = (
-                    torch.sign(
-                        torch.mean(
-                            (spec * freq_linear_reweighting)[..., thres:], dim=-1
-                        )
-                        - torch.mean(
-                            (spec * freq_linear_reweighting)[..., :thres], dim=-1
-                        )
-                    )
-                    * 0.5
-                    + 0.5
-                )
-                Lexp = (
-                    torch.mean(
-                        (
-                            components["amplitudes"][:, 0:1]
-                            - components["amplitudes"][:, 1:2]
-                        )
-                        * explosive
-                    )
-                    * 100
-                )
-                tracker.update(dict(Lexp=Lexp))
-                Lae += Lexp
-                if hamonic_bias:
-                    hamonic_loss = 1000 * torch.mean(
-                        (1 - components["amplitudes"][:, 0]) * on_stage
-                    )
-                    Lae += hamonic_loss
-
-                if pitch_aug:
-                    pitch_shift = 2 ** (
-                        -1.5
-                        + 3
-                        * torch.rand([components["f0_hz"].shape[0]]).to(torch.float32)
-                    ).reshape(
-                        [components["f0_hz"].shape[0], 1, 1]
-                    )
-                    components["f0_hz"] = (components["f0_hz"] * pitch_shift).clamp(
-                        min=88, max=300
-                    )
-                    rec_shift = self.decoder.forward(components, onstage=on_stage)
-                    components_enc = self.encoder(
-                        rec_shift,
-                        duomask=duomask,
-                        x_denoise=x_denoise,
-                        noise_level=None,
-                        x_amp=x_amp,
-                        gender=gender,
-                    )
-                    Lf0 = torch.mean(
-                        (components_enc["f0_hz"] / 200 - components["f0_hz"] / 200) ** 2
-                    )
-                    rec_cycle = self.decoder.forward(components_enc, onstage=on_stage)
-                    Lae += self.lae(
-                        rec_shift * freq_linear_reweighting,
-                        rec_cycle * freq_linear_reweighting,
-                        tracker=tracker,
-                    )
-                else:
-                    Lf0 = torch.tensor([0.0])
-                tracker.update(dict(Lf0=Lf0))
-
-                spec = spec.squeeze(dim=1).permute(0, 2, 1)  # B * f * T
-                loudness = torch.mean(spec * 0.5 + 0.5, dim=1, keepdim=True)
-                if self.wavebased:
-                    if self.power_synth:
-                        hamonic_components_diff = (
-                            compdiffd2(components["freq_formants_hamon_hz"] * 1.5)
-                            + compdiffd2(components["f0_hz"] * 2)
-                            + compdiff(
-                                components["bandwidth_formants_noise_hz"][
-                                    :, components["freq_formants_hamon_hz"].shape[1] :
-                                ]
-                                / 5
-                            )
-                            + compdiff(
-                                components["freq_formants_noise_hz"][
-                                    :, components["freq_formants_hamon_hz"].shape[1] :
-                                ]
-                                / 5
-                            )
-                            + compdiff(components["amplitudes"]) * 750.0
-                            + compdiffd2(components["amplitude_formants_hamon"])
-                            * 1500.0
-                            + compdiffd2(components["amplitude_formants_noise"])
-                            * 1500.0
-                        )
-                    else:
-                        hamonic_components_diff = (
-                            compdiffd2(components["freq_formants_hamon_hz"] * 1.5)
-                            + compdiffd2(components["f0_hz"] * 2)
-                            + compdiff(
-                                components["bandwidth_formants_noise_hz"][
-                                    :, components["freq_formants_hamon_hz"].shape[1] :
-                                ]
-                                / 5
-                            )
-                            + compdiff(
-                                components["freq_formants_noise_hz"][
-                                    :, components["freq_formants_hamon_hz"].shape[1] :
-                                ]
-                                / 5
-                            )
-                            + compdiff(components["amplitudes"]) * 750.0
-                            + compdiffd2(components["amplitude_formants_hamon"])
-                            * 1500.0
-                            + compdiffd2(components["amplitude_formants_noise"])
-                            * 1500.0
-                        )
-                else:
-                    hamonic_components_diff = (
-                        compdiff(
-                            components["freq_formants_hamon_hz"] * (1 - on_stage_wider)
-                        )
-                        + compdiff(components["f0_hz"] * (1 - on_stage_wider))
-                        + compdiff(components["amplitude_formants_hamon"]) * 750.0
-                        + compdiff(components["amplitude_formants_noise"]) * 750.0
-                    )
-                Ldiff = torch.mean(hamonic_components_diff) / 2000.0
-                tracker.update(dict(Ldiff=Ldiff))
-                Lae += Ldiff
-                Lfreqorder = torch.mean(
-                    F.relu(
-                        components["freq_formants_hamon_hz"][:, :-1]
-                        - components["freq_formants_hamon_hz"][:, 1:]
-                    )
-                )
-                if formant_label is not None:
-                    formant_label = formant_label[:, 0].permute(0, 2, 1)
-                    
-                    Lformant = torch.mean(
-                        (
-                            (
-                                components["freq_formants_hamon_hz"][:, :-2]
-                                - formant_label[:, :-2]
-                            )
-                            * on_stage.expand_as(formant_label[:, :-2])
-                        )
-                        ** 2
-                    )
-                    Lformant += (
-                        torch.mean(
-                            (
-                                (
-                                    components["freq_formants_hamon_hz"][:, 0:1]
-                                    - formant_label[:, 0:1]
-                                )
-                                * on_stage.expand_as(formant_label[:, 0:1])
-                            )
-                            ** 2
-                        )
-                        * 6
-                    )
-                    Lformant += (
-                        torch.mean(
-                            (
-                                (
-                                    components["freq_formants_hamon_hz"][:, 1:2]
-                                    - formant_label[:, 1:2]
-                                )
-                                * on_stage.expand_as(formant_label[:, 1:2])
-                            )
-                            ** 2
-                        )
-                        * 3
-                    )
-                    Lformant += (
-                        torch.mean(
-                            (
-                                (
-                                    components["freq_formants_hamon_hz"][:, 2:3]
-                                    - formant_label[:, 2:3]
-                                )
-                                * on_stage.expand_as(formant_label[:, 1:2])
-                            )
-                            ** 2
-                        )
-                        * 1.5
-                    )
-                    weight_decay_formant = piecewise_linear(
-                        epoch_current, start_decay=20, end_decay=40
-                    )
-                    Lformant *= weight_decay_formant * 0.000003
-                    tracker.update(dict(Lformant=Lformant))
-                    tracker.update(
-                        dict(
-                            weight_decay_formant=torch.FloatTensor(
-                                [weight_decay_formant]
-                            )
-                        )
-                    )
-                else:
-                    Lformant = torch.tensor([0.0])  # 0
-                if pitch_label is not None:
-                    pitch_label = pitch_label  # [:,0]#.permute(0,2,1)
-                    debug_save_path = (
-                        self.tmpsavepath
-                    )
-                    Lpitch = torch.mean(
-                        (
-                            (components["f0_hz"] - pitch_label)
-                            * on_stage.expand_as(pitch_label)
-                        )
-                        ** 2
-                    )
-                    weight_decay_pitch = piecewise_linear(
-                        epoch_current, start_decay=20, end_decay=40
-                    )
-                    Lpitch *= weight_decay_pitch * 0.0004
-                    tracker.update(dict(Lpitch=Lpitch))
-                else:
-                    Lpitch = torch.tensor([0.0])  # 0
-                return Lae + Lf0 + Lfreqorder + Lformant + Lloudness + Lpitch, tracker
-            else:
+                Loss, tracker = self.run_a2a_loss(rec,
+                                            spec,x_amp_from_denoise,x_denoise,x_mel,x_amp,
+                                            components,
+                                            tracker,
+                                            voice,unvoice,semivoice,plosive,fricative,
+                                            duomask,hamonic_bias,pitch_aug,epoch_current,
+                                            gender,pitch_label,formant_label,
+                                            on_stage_wider,
+                                            on_stage)
+                return Loss, tracker
+            else: # if ECoG to speech decoding: (step2)
                 components_guide = self.encode(
                     spec,
                     x_denoise=x_denoise,
@@ -2041,53 +2026,44 @@ class Model(nn.Module):
                     gender=gender,
                 )
                 self.encoder.requires_grad_(False)
-                if self.A2A:
-                    components_ecog = self.encoder2(
-                        spec2,
-                        x_denoise=x_denoise,
-                        duomask=duomask,
-                        noise_level=None,
-                        x_amp=x_amp,
+
+                if (
+                    self.auto_regressive
+                ):  
+                    (
+                        rec,
+                        components_ecog,
+                        spec,
+                        components_guide,
+                    ) = self.generate_fromecog(
+                        ecog,
+                        return_components=True,
+                        gt_comp=components_guide,
+                        gt_spec=spec,
                         gender=gender,
+                        onstage=on_stage,
                     )
+                    on_stage = on_stage[:, :, 1:]
+                    on_stage_wider = on_stage_wider[:, :, 1:]
+                    voice = voice[:, :, 1:]
+                    unvoice = unvoice[:, :, 1:]
+                    semivoice = semivoice[:, :, 1:]
+                    plosive = plosive[:, :, 1:]
+                    fricative = fricative[:, :, 1:]
                 else:
-                    if (
-                        self.auto_regressive
-                    ):  
-                        (
-                            rec,
-                            components_ecog,
-                            spec,
-                            components_guide,
-                        ) = self.generate_fromecog(
-                            ecog,
-                            return_components=True,
-                            gt_comp=components_guide,
-                            gt_spec=spec,
-                            gender=gender,
-                            onstage=on_stage,
-                        )
-                        on_stage = on_stage[:, :, 1:]
-                        on_stage_wider = on_stage_wider[:, :, 1:]
-                        voice = voice[:, :, 1:]
-                        unvoice = unvoice[:, :, 1:]
-                        semivoice = semivoice[:, :, 1:]
-                        plosive = plosive[:, :, 1:]
-                        fricative = fricative[:, :, 1:]
-                    else:
-                        rec, components_ecog = self.generate_fromecog(
+                    rec, components_ecog = self.generate_fromecog(
+                        ecog,
+                        return_components=True,
+                        gender=gender,
+                        onstage=on_stage,
+                    )
+                    if self.rdropout != 0:
+                        rec1, components_ecog1 = self.generate_fromecog(
                             ecog,
                             return_components=True,
                             gender=gender,
                             onstage=on_stage,
                         )
-                        if self.rdropout != 0:
-                            rec1, components_ecog1 = self.generate_fromecog(
-                                ecog,
-                                return_components=True,
-                                gender=gender,
-                                onstage=on_stage,
-                            )
 
                 betas = {
                     "loudness": 0.01,
@@ -2163,8 +2139,7 @@ class Model(nn.Module):
                 + list(self.encoder.parameters())
                 + (
                     list(self.ecog_encoder.parameters())
-                    if self.with_ecog and not self.A2A
-                    else []
+                    if self.with_ecog else []
                 )
                 + (list(self.decoder_mel.parameters()) if self.do_mel_guide else [])
                 + (list(self.encoder2.parameters()) if self.with_encoder2 else [])
@@ -2174,14 +2149,10 @@ class Model(nn.Module):
                 + list(other.encoder.parameters())
                 + (
                     list(other.ecog_encoder.parameters())
-                    if self.with_ecog and not self.A2A
-                    else []
+                    if self.with_ecog else []
                 )
                 + (list(other.decoder_mel.parameters()) if self.do_mel_guide else [])
                 + (list(other.encoder2.parameters()) if self.with_encoder2 else [])
             )
             for p, p_other in zip(params, other_param):
                 p.data.lerp_(p_other.data, 1.0 - betta)
-
-
-#

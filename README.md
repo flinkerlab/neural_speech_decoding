@@ -56,7 +56,7 @@ usage: train_a2a.py [-h] [-c FILE] [--DENSITY DENSITY] [--wavebased WAVEBASED] [
 
 Example usage:
 
-```python
+```shell
 python train_a2a.py --OUTPUT_DIR output/a2a/NY742 --trainsubject NY742 --testsubject NY742 --param_file configs/a2a_production.yaml --batch_size 16 --reshape 1 --DENSITY "HB" --wavebased 1 --n_filter_samples 80 --n_fft 256 --formant_supervision 1  --intensity_thres -1 --epoch_num 60
 ```
 

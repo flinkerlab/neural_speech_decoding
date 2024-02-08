@@ -59,7 +59,7 @@ class ECoGDataset(Dataset):
                 train_param = json.load(rfile)
         else:
             pass
-
+        self.DOWN_WAVE_FS  = allsubj_param['Shared']['DOWN_WAVE_FS']
         self.wavebased = cfg.MODEL.WAVE_BASED
         self.UseGridOnly,self.SeqLen = train_param['UseGridOnly'],train_param['SeqLen']
         self.Prod = cfg.DATASET.PROD
@@ -212,7 +212,7 @@ class TFRecordsDataset:
                     intensity_label = False,DEBUG=False,allsubj_param=None,repeattimes=128):
         self.param = param
         self.dataset = ECoGDataset(cfg, SUBJECT, mode='train' if train else 'test', world_size = world_size, \
-            train_param = param, allsubj_param = allsubj_param, ReshapeAsGrid = ReshapeAsGrid, rearrange_elec = rearrange_elec, low_density = low_density, \
+            train_param = param, allsubj_param = allsubj_param,  rearrange_elec = rearrange_elec, low_density = low_density, \
                 process_ecog = process_ecog, formant_label = formant_label, pitch_label = pitch_label, \
                     intensity_label = intensity_label,DEBUG=DEBUG,infer=infer,data_dir = data_dir,repeattimes=repeattimes)
         self.noise_dist = self.dataset.meta_data['noisesample_re_alldataset'][0][:]

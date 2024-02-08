@@ -536,12 +536,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
             file_name=load_model_dir,
         )
         arguments.update(extra_checkpoint_data)
-    print(
-        "supervisions: args_.formant_supervision, args_.pitch_supervision, args_.intensity_supervision",
-        args_.formant_supervision,
-        args_.pitch_supervision,
-        args_.intensity_supervision,
-    )
     if args_.formant_supervision:
         pitch_label = True
         intensity_label = True
@@ -829,7 +823,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 pitch_aug=False,
                 gender=gender_train,
                 duomask=duomask,
-                debug=False,
                 x_amp=x_orig_amp,
                 hamonic_bias=False,
                 x_amp_from_denoise=x_amp_from_denoise,
@@ -840,7 +833,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 fricative=sample_fricative,
                 formant_label=formant_label,
                 pitch_label=pitch_label,
-                intensity_label=intensity_label,
                 epoch_current=epoch,
                 n_iter=n_iter_pass,
                 save_path=cfg.OUTPUT_DIR,
@@ -893,7 +885,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
                         encoder_guide=cfg.MODEL.W_SUP,
                         pitch_aug=False,
                         duomask=duomask,
-                        debug=False,
                         x_amp=sample_spec_amp_test_all[subject],
                         hamonic_bias=False,
                         gender=gender_test_all[subject],

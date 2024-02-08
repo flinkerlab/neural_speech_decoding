@@ -1380,8 +1380,7 @@ class Model(nn.Module):
         return Loss, tracker
 
     
-    def run_a2a_loss(self,
-        rec,
+    def run_a2a_loss(self, rec,
         spec,x_amp_from_denoise,x_denoise,x_mel,x_amp,
         components,
         tracker,

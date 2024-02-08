@@ -80,7 +80,11 @@ Same arguments as `train_a2a.py`
 Example usage:
 
 ```
-python train_e2a.py --OUTPUT_DIR output/e2a/resnet_NY742 --trainsubject NY742 --testsubject NY742 --param_file configs/e2a_production.yaml --batch_size 16 --MAPPING_FROM_ECOG ECoGMapping_ResNet --reshape 1 --DENSITY "HB" --wavebased 1 --dynamicfiltershape 0 --n_filter_samples 80 --n_fft 256 --formant_supervision 1  --intensity_thres -1 --epoch_num 60 --pretrained_model_dir output/a2a/NY742 --causal 0
+python train_e2a.py --OUTPUT_DIR output/e2a/resnet_NY742 --trainsubject NY742 --testsubject NY742
+ --param_file configs/e2a_production.yaml --batch_size 16 --MAPPING_FROM_ECOG 
+ECoGMapping_ResNet --reshape 1 --DENSITY "HB" --wavebased 1 --dynamicfiltershape 0
+ --n_filter_samples 80 --n_fft 256 --formant_supervision 1  --intensity_thres -1
+ --epoch_num 60 --pretrained_model_dir output/a2a/NY742 --causal 0
 ```
 
 

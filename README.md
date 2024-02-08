@@ -56,12 +56,12 @@ usage: train_a2a.py [-h] [-c FILE] [--DENSITY DENSITY] [--wavebased WAVEBASED]
 [--lar_cap LAR_CAP] [--intensity_thres INTENSITY_THRES]
 [--RNN_COMPUTE_DB_LOUDNESS RNN_COMPUTE_DB_LOUDNESS] 
 [--BIDIRECTION BIDIRECTION][--MAPPING_FROM_ECOG MAPPING_FROM_ECOG] [--OUTPUT_DIR OUTPUT_DIR]
- [--COMPONENTKEY COMPONENTKEY][--trainsubject TRAINSUBJECT] [--testsubject TESTSUBJECT]
- [--reshape RESHAPE][--ld_loss_weight LD_LOSS_WEIGHT] [--alpha_loss_weight ALPHA_LOSS_WEIGHT]
+[--COMPONENTKEY COMPONENTKEY][--trainsubject TRAINSUBJECT] [--testsubject TESTSUBJECT]
+[--reshape RESHAPE][--ld_loss_weight LD_LOSS_WEIGHT] [--alpha_loss_weight ALPHA_LOSS_WEIGHT]
 [--consonant_loss_weight CONSONANT_LOSS_WEIGHT] [--batch_size BATCH_SIZE] 
 [--param_file PARAM_FILE][--pretrained_model_dir PRETRAINED_MODEL_DIR] [--causal CAUSAL]
 [--anticausal ANTICAUSAL][--rdropout RDROPOUT] [--epoch_num EPOCH_NUM] [--use_stoi USE_STOI]
- [--use_denoise USE_DENOISE][--noise_db NOISE_DB]
+[--use_denoise USE_DENOISE][--noise_db NOISE_DB]
 ```
 
 Example usage:

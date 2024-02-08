@@ -47,8 +47,9 @@ Fill in the config files including `configs/a2a_production.yaml,configs/e2a_prod
 ## Speech to Speech 
 
 ```shell
-usage: train_a2a.py [-h] [-c FILE] [--DENSITY DENSITY] [--wavebased WAVEBASED] [--bgnoise_fromdata BGNOISE_FROMDATA]
-[--ignore_loading IGNORE_LOADING] [--finetune FINETUNE] [--learnedmask LEARNEDMASK]
+usage: train_a2a.py [-h] [-c FILE] [--DENSITY DENSITY] [--wavebased WAVEBASED]
+[--bgnoise_fromdata BGNOISE_FROMDATA] [--ignore_loading IGNORE_LOADING] 
+[--finetune FINETUNE] [--learnedmask LEARNEDMASK]
 [--dynamicfiltershape DYNAMICFILTERSHAPE] [--formant_supervision FORMANT_SUPERVISION]
 [--pitch_supervision PITCH_SUPERVISION] [--intensity_supervision INTENSITY_SUPERVISION]
 [--n_filter_samples N_FILTER_SAMPLES] [--n_fft N_FFT] [--reverse_order REVERSE_ORDER]

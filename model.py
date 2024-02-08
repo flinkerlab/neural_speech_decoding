@@ -458,6 +458,7 @@ class Model(nn.Module):
         GHM=False,
         suffix="",
         MTF=False,
+        reweight = 1
     ):
         """
         given rec, spec as reconstructed and original spectrogram, compute the difference loss including:
@@ -475,12 +476,12 @@ class Model(nn.Module):
             rec_amp_ = rec_amp
             if GHM:
                 Lae_a = self.ghm_loss(
-                    rec_amp_, spec_amp_, torch.ones(spec_amp_)
-                )  # *150
+                    rec_amp_, spec_amp_, torch.ones(spec_amp_), reweight=reweight
+                )
                 Lae_a_l2 = torch.tensor([0.0])
             else:
-                Lae_a = (spec_amp_ - rec_amp_).abs().mean()  # *150
-                Lae_a_l2 = torch.sqrt((spec_amp_ - rec_amp_) ** 2 + 1e-6).mean()  # *150
+                Lae_a = (spec_amp_ - rec_amp_).abs().mean()
+                Lae_a_l2 = torch.sqrt((spec_amp_ - rec_amp_) ** 2 + 1e-6).mean()
         else:
             Lae_a = torch.tensor(0.0)
             Lae_a_l2 = torch.tensor(0.0)
@@ -490,7 +491,7 @@ class Model(nn.Module):
             )
         if db:
             if GHM:
-                Lae_db = self.ghm_loss(rec, spec, torch.ones(spec))  # *150
+                Lae_db = self.ghm_loss(rec, spec, torch.ones(spec), reweight=reweight)
                 Lae_db_l2 = torch.tensor([0.0])
             else:
                 Lae_db = (spec - rec).abs().mean()

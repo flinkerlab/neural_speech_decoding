@@ -1,3 +1,5 @@
+.gitignore
+.gitarrtibutes
 model_viz.py
 data
 configs/ecog_style2_a.yaml

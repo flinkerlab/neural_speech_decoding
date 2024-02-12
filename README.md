@@ -91,6 +91,10 @@ python train_e2a.py --OUTPUT_DIR output/e2a/resnet_NY742 --trainsubject NY742 \
 ## Running time
 We train 60 epochs for Speech to Speech and ECoG to Speech. Running on one A100 GPU usually take 6 hours for Speech to Speech and 10 hours for ECoG to Speech
 
+## Contamination analysis
+Based on [Observation and assessment of acoustic contamination of electrophysiological brain signals during speech production and sound perception](https://iopscience.iop.org/article/10.1088/1741-2552/abb25e). We did contamination analysis in [contamination_analysis](contamination_analysis)
+
+
 ## Citing Our Work
 ```dotnetcli
 @article{chen2023neural,

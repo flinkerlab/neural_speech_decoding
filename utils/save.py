@@ -473,7 +473,7 @@ def save_sample(
     ecog,
     encoder,
     decoder,
-    ecog_encoder,
+    ecog_decoder,
     encoder2,
     epoch,
     label,
@@ -508,8 +508,8 @@ def save_sample(
         decoder.eval()
         if decoder_mel is not None:
             decoder_mel.eval()
-        if ecog_encoder is not None:
-            ecog_encoder.eval()
+        if ecog_decoder is not None:
+            ecog_decoder.eval()
         if encoder2 is not None:
             encoder2.eval()
         sample_in_all = torch.tensor([])
@@ -517,7 +517,7 @@ def save_sample(
         rec_denoise_all = torch.tensor([])
         components_all = []
 
-        if ecog_encoder is not None or encoder2 is not None:
+        if ecog_decoder is not None or encoder2 is not None:
             rec_ecog_all = torch.tensor([])
             rec_denoise_ecog_all = torch.tensor([])
             rec_denoise_ecog_wave_all = torch.tensor([])
@@ -530,7 +530,7 @@ def save_sample(
                     sample.shape[0],
                     figsize=(5 * sample.shape[0], 23 * (4 if linear else 1)),
                 )
-                if (ecog_encoder is None and encoder2 is None)
+                if (ecog_decoder is None and encoder2 is None)
                 else plt.subplots(
                     11, sample.shape[0], figsize=(5 * sample.shape[0] // 2, 28 * 4 // 2)
                 )
@@ -542,7 +542,7 @@ def save_sample(
                     sample.shape[0],
                     figsize=(5 * sample.shape[0], 27 * (4 if linear else 1)),
                 )
-                if (ecog_encoder is None and encoder2 is None)
+                if (ecog_decoder is None and encoder2 is None)
                 else plt.subplots(
                     11, sample.shape[0], figsize=(5 * sample.shape[0] // 2, 28 * 4 // 2)
                 )
@@ -572,7 +572,7 @@ def save_sample(
                 else None
             )
             on_stage_in = on_stage_wider[i : np.minimum(i + 1, sample.shape[0])]
-            if ecog_encoder is not None:
+            if ecog_decoder is not None:
                 ecog_in = ecog[i : np.minimum(i + 1, sample.shape[0])]
             gender_in = gender[i : np.minimum(i + 1, sample.shape[0])]
             components = encoder(
@@ -613,7 +613,7 @@ def save_sample(
                 [rec_denoise_all.to(device), rec_denoise.to(device)], dim=0
             )
             components_all += [components]
-            if ecog_encoder is not None or encoder2 is not None:
+            if ecog_decoder is not None or encoder2 is not None:
                 if cfg.VISUAL.A2A:
                     components_ecog = encoder2(
                         sample_in2,
@@ -626,7 +626,7 @@ def save_sample(
                     )
                 else:
                     if auto_regressive:
-                        components_ecog = ecog_encoder.generate(
+                        components_ecog = ecog_decoder.generate(
                             ecog_in,
                             seq_out_start=seq_out_start,
                             seq_len=128,
@@ -640,11 +640,11 @@ def save_sample(
                                     i, i // 50
                                 ),
                             )
-                            components_ecog = ecog_encoder(
+                            components_ecog = ecog_decoder(
                                 ecog_in
                             )
                         else:
-                            components_ecog = ecog_encoder(
+                            components_ecog = ecog_decoder(
                                 ecog_in
                             )
                 rec_ecog = decoder(components_ecog, onstage=on_stage_wider)
@@ -698,7 +698,7 @@ def save_sample(
                 n_fft=n_fft,
                 power=decoder.power_synth,
                 ecog=None
-                if (ecog_encoder is None and encoder2 is None)
+                if (ecog_decoder is None and encoder2 is None)
                 else components_ecog_all[i],
             )
             subfigure_plot(
@@ -711,7 +711,7 @@ def save_sample(
                 linear=linear,
                 n_fft=n_fft,
                 ecog=None
-                if (ecog_encoder is None and encoder2 is None)
+                if (ecog_decoder is None and encoder2 is None)
                 else components_ecog_all[i],
             )
             subfigure_plot(
@@ -725,7 +725,7 @@ def save_sample(
                 linear=linear,
                 n_fft=n_fft,
                 ecog=None
-                if (ecog_encoder is None and encoder2 is None)
+                if (ecog_decoder is None and encoder2 is None)
                 else components_ecog_all[i],
             )
             subfigure_plot(
@@ -738,7 +738,7 @@ def save_sample(
                 linear=linear,
                 n_fft=n_fft,
                 ecog=None
-                if (ecog_encoder is None and encoder2 is None)
+                if (ecog_decoder is None and encoder2 is None)
                 else components_ecog_all[i],
             )
             subfigure_plot(
@@ -751,7 +751,7 @@ def save_sample(
                 linear=linear,
                 n_fft=n_fft,
                 ecog=None
-                if (ecog_encoder is None and encoder2 is None)
+                if (ecog_decoder is None and encoder2 is None)
                 else components_ecog_all[i],
             )
             subfigure_plot(
@@ -764,7 +764,7 @@ def save_sample(
                 linear=linear,
                 n_fft=n_fft,
                 ecog=None
-                if (ecog_encoder is None and encoder2 is None)
+                if (ecog_decoder is None and encoder2 is None)
                 else components_ecog_all[i],
             )
             subfigure_plot(
@@ -787,7 +787,7 @@ def save_sample(
                 linear=linear,
                 n_fft=n_fft,
             )
-            if ecog_encoder is None and decoder_mel is not None:
+            if ecog_decoder is None and decoder_mel is not None:
                 subfigure_plot(
                     axs[9, i],
                     rec_mel,
@@ -799,7 +799,7 @@ def save_sample(
                     n_fft=n_fft,
                 )
 
-            if ecog_encoder is not None or encoder2 is not None:
+            if ecog_decoder is not None or encoder2 is not None:
                 subfigure_plot(
                     axs[9, i],
                     rec_ecog_all[i : i + 1],
@@ -821,7 +821,7 @@ def save_sample(
                     n_fft=n_fft,
                 )
 
-        if ecog_encoder is not None or encoder2 is not None:
+        if ecog_decoder is not None or encoder2 is not None:
             resultsample = torch.cat([sample_in_all, rec_all, rec_ecog_all], dim=0)
         else:
             try:
@@ -840,7 +840,7 @@ def save_sample(
         fig.savefig(f, bbox_inches="tight")
         plt.close(fig)
 
-        if ecog_encoder is not None or encoder2 is not None:
+        if ecog_decoder is not None or encoder2 is not None:
             scipy.io.wavfile.write(
                 f2 + "denoiseecogwave.wav",
                 16000,
@@ -925,7 +925,7 @@ def save_sample(
                 )
                 rec_wave_denoise = spsi(rec_denoise_all, (n_fft - 1) * 2, 128)
             scipy.io.wavfile.write(f2 + "denoise.wav", 16000, rec_wave_denoise)
-            if ecog_encoder is not None or encoder2 is not None:
+            if ecog_decoder is not None or encoder2 is not None:
                 if use_GL:
                     rec_wave_ecog = mygriffinlim(
                         amplitude(
@@ -1018,7 +1018,7 @@ def save_sample(
         save_image(
             resultsample,
             f2,
-            nrow=resultsample.shape[0] // (2 if ecog_encoder is None else 3),
+            nrow=resultsample.shape[0] // (2 if ecog_decoder is None else 3),
         )
 
         if mode == "test":
@@ -1032,7 +1032,7 @@ def save_sample(
                 components_all_np[i] = (
                     torch.cat(components_all_np[i], 0).detach().cpu().numpy()
                 )
-            if ecog_encoder is not None or encoder2 is not None:
+            if ecog_decoder is not None or encoder2 is not None:
                 components_ecog_all_np = {}
                 for i, j in components_ecog_all[0].items():
                     components_ecog_all_np[i] = []
@@ -1065,7 +1065,7 @@ def save_sample(
                 "rec_denoise": rec_denoise_all,
                 "lable": labels,
             }
-            if ecog_encoder is not None or encoder2 is not None:
+            if ecog_decoder is not None or encoder2 is not None:
                 save_dict["components_ecog"] = components_ecog_all_np
                 save_dict["rec_ecog"] = rec_ecog_all
                 save_dict["rec_ecog_denoise"] = rec_denoise_ecog_all
@@ -1073,7 +1073,7 @@ def save_sample(
             save_dict["wave_org"] = sample_wave.detach().cpu().numpy()
             save_dict["wave_rec"] = rec_wave
             save_dict["wave_rec_denoise"] = rec_wave_denoise
-            if ecog_encoder is not None or encoder2 is not None:
+            if ecog_decoder is not None or encoder2 is not None:
                 save_dict["wave_rec_ecog"] = rec_wave_ecog
                 save_dict["wave_rec_ecog_denoise"] = rec_wave_denoise_ecog
             try:

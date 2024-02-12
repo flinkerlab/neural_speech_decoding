@@ -2214,7 +2214,7 @@ class BasicRNN(torch.nn.Module):
         return output
 
 
-@ECOG_ENCODER.register("ECoGMapping_ResNet")
+@ECOG_DECODER.register("ECoGMapping_ResNet")
 class ECoGMapping_Bottleneck_ran(nn.Module):
     def __init__(
         self,
@@ -2357,7 +2357,7 @@ class ECoGMapping_Bottleneck_ran(nn.Module):
         return components if not self.GR else classified_Speakers
 
 
-@ECOG_ENCODER.register("ECoGMapping_RNN")
+@ECOG_DECODER.register("ECoGMapping_RNN")
 class ECoGMappingRNN_ran(torch.nn.Module):
     """Model used to predict motion traces and speech features from ECoG data using Transformer"""
 
@@ -2463,7 +2463,7 @@ class ECoGMappingRNN_ran(torch.nn.Module):
         return components if not self.GR else classified_Speakers
 
 
-@ECOG_ENCODER.register("ECoGMapping_3D_SWIN")
+@ECOG_DECODER.register("ECoGMapping_3D_SWIN")
 class ECoGMapping_3D_SWIN(nn.Module):
     def __init__(
         self,

@@ -209,7 +209,7 @@ class Model(nn.Module):
         self,
         generator="",
         encoder="",
-        ecog_encoder_name="",
+        ecog_decoder_name="",
         spec_chans=128,
         n_formants=2,
         n_formants_noise=2,
@@ -255,10 +255,8 @@ class Model(nn.Module):
         n_filter_samples=40,
         dynamic_filter_shape=False,
         learnedbandwidth=False,
-        auto_regressive=False,
         patient="NY742",
-        batch_size=8,
-        rdropout=0,
+        rdropout=0,  #https://arxiv.org/abs/2106.14448
         return_filtershape=False,
         spec_fr=125,
         gender_patient="Female",
@@ -282,7 +280,7 @@ class Model(nn.Module):
         self.spec_chans = spec_chans
         self.with_ecog = with_ecog
         self.with_encoder2 = with_encoder2
-        self.ecog_encoder_name = ecog_encoder_name
+        self.ecog_decoder_name = ecog_decoder_name
         self.n_formants_ecog = n_formants_ecog
         self.n_formants = n_formants
         self.wavebased = wavebased
@@ -306,13 +304,11 @@ class Model(nn.Module):
         self.delta_freq = delta_freq
         self.cumsum = cumsum
         self.distill = distill
-        self.auto_regressive = auto_regressive
         self.patient = patient
         self.rdropout = rdropout
         self.return_cc = False
         self.cc_method = "None"
         self.noise_from_data = noise_from_data
-        self.auto_regressive = False
         self.weighted_vis = True
         self.return_filtershape = return_filtershape
         self.formant_freq_limits_abs = torch.tensor(
@@ -374,7 +370,7 @@ class Model(nn.Module):
         )
 
         if with_ecog:
-            self.ecog_encoder = ECOG_ENCODER[ecog_encoder_name](
+            self.ecog_decoder = ECOG_DECODER[ecog_decoder_name](
                     n_mels=spec_chans,
                     n_formants=n_formants_ecog,
                     network_db=network_db,
@@ -394,37 +390,18 @@ class Model(nn.Module):
         self,
         ecog=None,
         return_components=False,
-        gt_comp=None,
-        gt_spec=None,
-        return_also_encodings=False,
-        gender=None,
         onstage=None,
     ):
-        if self.auto_regressive:
-            components = self.ecog_encoder(
-                ecog,
-                gt_comp,
-                dec_return_also_encodings=return_also_encodings,
-                gender=gender,
-            )
-            if return_also_encodings:
-                encodings, target_comp, components = components
-            else:
-                target_comp, components = components
-            target_spec = gt_spec[:, :, 1:]
-        else:
-            components = self.ecog_encoder(ecog)
+        '''
+        Use the ECoG decoder to generate speech parameters
+        and then generate spectrogram using speech synthesizer
+        '''
+        components = self.ecog_decoder(ecog)
         rec = self.decoder.forward(components, onstage)
         if return_components:
-            if self.auto_regressive:
-                return rec, components, target_spec, target_comp
-            else:
-                return rec, components
+            return rec, components
         else:
-            if self.auto_regressive:
-                return rec, target_spec
-            else:
-                return rec
+            return rec
 
     def encode(
         self,
@@ -500,7 +477,6 @@ class Model(nn.Module):
         if MTF:
             spec_amp = amplitude(spec, noise_db=self.noise_db, max_db=self.max_db)
             rec_amp = amplitude(rec, noise_db=self.noise_db, max_db=self.max_db)
-            # print ('loudness MTF loss!!')
             F_tmp, F_horizontal, F_vertical = MTF_pytorch(spec_amp)
             F_tmp_rec, F_horizontal_rec, F_vertical_rec = MTF_pytorch(rec_amp)
             Lae_mtf = (
@@ -555,6 +531,7 @@ class Model(nn.Module):
             return (loss - beta).abs() + beta
         else:
             return loss
+    
     def run_components_loss(
         self,
         rec,
@@ -573,12 +550,16 @@ class Model(nn.Module):
         calculate component loss with spectrogram encoded components and ECoG decoded components
         """
         if self.spec_sup:
+            '''
+            original and reconstructed linear spectrogram loss using function `lae`
+            '''
             Lrec = 80 * self.lae(
                     rec, spec, tracker=tracker, amp=False, suffix="1", MTF=False
                 )
         else:
             Lrec = torch.tensor([0.0])
 
+        #original and reconstructed mel spectrogram loss using function `lae`
         spec_amp = amplitude(spec, self.noise_db, self.max_db).transpose(-2, -1)
         rec_amp = amplitude(rec, self.noise_db, self.max_db).transpose(-2, -1)
         spec_mel = to_db(
@@ -596,6 +577,8 @@ class Model(nn.Module):
             self.max_db,
         )
         Lrec += 80 * self.lae(rec_mel, spec_mel, tracker=tracker, amp=False, suffix="2")
+        
+        #stoi loss
         if self.use_stoi:
             if spec_amp.shape[-2] == 256:
                 stoi_loss = (
@@ -613,588 +596,584 @@ class Model(nn.Module):
                 )
             Lrec += stoi_loss
         tracker.update(dict(Lrec=Lrec))
-        Lcomp = 0
-        if encoder_guide:
-            consonant_weight = (
-                1 
+        
+        '''
+        loss function for ECoG to speech paramater decoding
+        computed between speech to speech encoded guidance speecch parameters
+        and ECoG decoded speech parameters
+        '''
+        Lcomp = 0 
+        
+        # define a bunch of weights for different speech parameters
+        consonant_weight = 1
+        if self.power_synth:
+            loudness_db = torchaudio.transforms.AmplitudeToDB()(
+                components_guide["loudness"]
             )
-            if self.power_synth:
-                loudness_db = torchaudio.transforms.AmplitudeToDB()(
-                    components_guide["loudness"]
-                )
-                loudness_db_norm = (loudness_db.clamp(min=-70) + 70) / 50
-                if self.amp_minmax:
-                    hamon_amp_minmax_weight = (
-                        torch.tensor([2, 5, 4, 0.5, 0.5, 0.5])
-                        .view(1, -1, 1)
-                        .expand_as(components_guide["amplitude_formants_hamon"])
-                    )
-                    amplitude_formants_hamon_db_norm = torch.zeros_like(
-                        components_guide["amplitude_formants_hamon"]
-                    )
-                    for freqs in range(amplitude_formants_hamon_db_norm.shape[1]):
-                        amplitude_formants_hamon_db_norm[:, freqs] = minmaxscale(
-                            components_guide["amplitude_formants_hamon"][:, freqs]
-                        )
-                    amplitude_formants_hamon_db_norm = (
-                        amplitude_formants_hamon_db_norm * hamon_amp_minmax_weight
-                    )
-
-                    noise_amp_minmax_weight = (
-                        torch.tensor([2, 0.5, 0.5, 0.5, 0.5, 0.5, 10])
-                        .view(1, -1, 1)
-                        .expand_as(components_guide["amplitude_formants_noise"])
-                    )
-                    amplitude_formants_noise_db_norm = torch.zeros_like(
-                        components_guide["amplitude_formants_noise"]
-                    )
-                    for freqs in range(amplitude_formants_noise_db_norm.shape[1]):
-                        amplitude_formants_noise_db_norm[:, freqs] = minmaxscale_ref(
-                            components_guide["amplitude_formants_noise"][:, freqs],
-                            data_select=components_guide["amplitude_formants_noise"][
-                                :, freqs
-                            ][
-                                torch.where(
-                                    components_guide["amplitudes"][:, 0:1].squeeze(1)
-                                    < 0.5
-                                )
-                            ],
-                        )
-                    amplitude_formants_noise_db_norm = (
-                        amplitude_formants_noise_db_norm * noise_amp_minmax_weight
-                    )
-
-                else:
-                    amplitude_formants_hamon_db = torchaudio.transforms.AmplitudeToDB()(
-                        components_guide["amplitude_formants_hamon"]
-                    )
-                    amplitude_formants_hamon_db_norm = (
-                        amplitude_formants_hamon_db.clamp(min=-70) + 70
-                    ) / 50
-                    amplitude_formants_noise_db = torchaudio.transforms.AmplitudeToDB()(
-                        components_guide["amplitude_formants_noise"]
-                    )
-                    amplitude_formants_noise_db_norm = (
-                        amplitude_formants_noise_db.clamp(min=-70) + 70
-                    ) / 50
-            else:
-                loudness_db = torchaudio.transforms.AmplitudeToDB()(
-                    components_guide["loudness"]
-                )
-                loudness_db_norm = (loudness_db.clamp(min=-70) + 70) / 50
-
-                if self.amp_minmax:
-                    hamon_amp_minmax_weight = (
-                        torch.tensor([2, 5, 4, 0.5, 0.5, 0.5])
-                        .view(1, -1, 1)
-                        .expand_as(components_guide["amplitude_formants_hamon"])
-                    )
-                    amplitude_formants_hamon_db_norm = torch.zeros_like(
-                        components_guide["amplitude_formants_hamon"]
-                    )
-                    for freqs in range(amplitude_formants_hamon_db_norm.shape[1]):
-                        amplitude_formants_hamon_db_norm[:, freqs] = minmaxscale(
-                            components_guide["amplitude_formants_hamon"][:, freqs]
-                        )
-                    amplitude_formants_hamon_db_norm = (
-                        amplitude_formants_hamon_db_norm * hamon_amp_minmax_weight
-                    )
-
-                    noise_amp_minmax_weight = (
-                        torch.tensor([2, 0.5, 0.5, 0.5, 0.5, 0.5, 10])
-                        .view(1, -1, 1)
-                        .expand_as(components_guide["amplitude_formants_noise"])
-                    )
-                    amplitude_formants_noise_db_norm = torch.zeros_like(
-                        components_guide["amplitude_formants_noise"]
-                    )
-                    for freqs in range(amplitude_formants_noise_db_norm.shape[1]):
-                        amplitude_formants_noise_db_norm[:, freqs] = minmaxscale_ref(
-                            components_guide["amplitude_formants_noise"][:, freqs],
-                            data_select=components_guide["amplitude_formants_noise"][
-                                :, freqs
-                            ][
-                                torch.where(
-                                    components_guide["amplitudes"][:, 0:1].squeeze(1)
-                                    < 0.5
-                                )
-                            ],
-                        )
-                    amplitude_formants_noise_db_norm = (
-                        amplitude_formants_noise_db_norm * noise_amp_minmax_weight
-                    )
-
-                else:
-                    amplitude_formants_hamon_db = torchaudio.transforms.AmplitudeToDB()(
-                        components_guide["amplitude_formants_hamon"]
-                    )
-                    amplitude_formants_hamon_db_norm = (
-                        amplitude_formants_hamon_db.clamp(min=-70) + 70
-                    ) / 50
-                    amplitude_formants_noise_db = torchaudio.transforms.AmplitudeToDB()(
-                        components_guide["amplitude_formants_noise"]
-                    )
-                    amplitude_formants_noise_db_norm = (
-                        amplitude_formants_noise_db.clamp(min=-70) + 70
-                    ) / 50
-            if self.ld_loss_weight:
-                loudness_db_norm_weight = loudness_db_norm
-            else:
-                loudness_db_norm_weight = 1
-            if self.alpha_loss_weight:
-                alpha_formant_weight = components_guide["amplitudes"][:, 0:1]
-                alpha_noise_weight = components_guide["amplitudes"][:, 1:2]
-            else:
-                alpha_formant_weight = 1
-                alpha_noise_weight = 1
-            if self.amp_formant_loss_weight:
-                amplitude_formants_hamon_db_norm_weight = (
-                    amplitude_formants_hamon_db_norm
-                )
-                amplitude_formants_noise_db_norm_weight = (
-                    amplitude_formants_noise_db_norm
-                )
-            else:
-                amplitude_formants_hamon_db_norm_weight = 1
-                amplitude_formants_noise_db_norm_weight = 1
-            if self.freq_single_formant_loss_weight:
-                freq_single_formant_weight = (
-                    torch.tensor([6, 3, 2, 1, 1, 1])
+            loudness_db_norm = (loudness_db.clamp(min=-70) + 70) / 50
+            if self.amp_minmax:
+                hamon_amp_minmax_weight = (
+                    torch.tensor([2, 5, 4, 0.5, 0.5, 0.5])
                     .view(1, -1, 1)
-                    .expand_as(
-                        components_guide["amplitude_formants_hamon"][
-                            :, : self.n_formants_ecog
-                        ]
+                    .expand_as(components_guide["amplitude_formants_hamon"])
+                )
+                amplitude_formants_hamon_db_norm = torch.zeros_like(
+                    components_guide["amplitude_formants_hamon"]
+                )
+                for freqs in range(amplitude_formants_hamon_db_norm.shape[1]):
+                    amplitude_formants_hamon_db_norm[:, freqs] = minmaxscale(
+                        components_guide["amplitude_formants_hamon"][:, freqs]
+                    )
+                amplitude_formants_hamon_db_norm = (
+                    amplitude_formants_hamon_db_norm * hamon_amp_minmax_weight
+                )
+
+                noise_amp_minmax_weight = (
+                    torch.tensor([2, 0.5, 0.5, 0.5, 0.5, 0.5, 10])
+                    .view(1, -1, 1)
+                    .expand_as(components_guide["amplitude_formants_noise"])
+                )
+                amplitude_formants_noise_db_norm = torch.zeros_like(
+                    components_guide["amplitude_formants_noise"]
+                )
+                for freqs in range(amplitude_formants_noise_db_norm.shape[1]):
+                    amplitude_formants_noise_db_norm[:, freqs] = minmaxscale_ref(
+                        components_guide["amplitude_formants_noise"][:, freqs],
+                        data_select=components_guide["amplitude_formants_noise"][
+                            :, freqs
+                        ][
+                            torch.where(
+                                components_guide["amplitudes"][:, 0:1].squeeze(1)
+                                < 0.5
+                            )
+                        ],
+                    )
+                amplitude_formants_noise_db_norm = (
+                    amplitude_formants_noise_db_norm * noise_amp_minmax_weight
+                )
+
+            else:
+                amplitude_formants_hamon_db = torchaudio.transforms.AmplitudeToDB()(
+                    components_guide["amplitude_formants_hamon"]
+                )
+                amplitude_formants_hamon_db_norm = (
+                    amplitude_formants_hamon_db.clamp(min=-70) + 70
+                ) / 50
+                amplitude_formants_noise_db = torchaudio.transforms.AmplitudeToDB()(
+                    components_guide["amplitude_formants_noise"]
+                )
+                amplitude_formants_noise_db_norm = (
+                    amplitude_formants_noise_db.clamp(min=-70) + 70
+                ) / 50
+        else:
+            loudness_db = torchaudio.transforms.AmplitudeToDB()(
+                components_guide["loudness"]
+            )
+            loudness_db_norm = (loudness_db.clamp(min=-70) + 70) / 50
+
+            if self.amp_minmax:
+                hamon_amp_minmax_weight = (
+                    torch.tensor([2, 5, 4, 0.5, 0.5, 0.5])
+                    .view(1, -1, 1)
+                    .expand_as(components_guide["amplitude_formants_hamon"])
+                )
+                amplitude_formants_hamon_db_norm = torch.zeros_like(
+                    components_guide["amplitude_formants_hamon"]
+                )
+                for freqs in range(amplitude_formants_hamon_db_norm.shape[1]):
+                    amplitude_formants_hamon_db_norm[:, freqs] = minmaxscale(
+                        components_guide["amplitude_formants_hamon"][:, freqs]
+                    )
+                amplitude_formants_hamon_db_norm = (
+                    amplitude_formants_hamon_db_norm * hamon_amp_minmax_weight
+                )
+
+                noise_amp_minmax_weight = (
+                    torch.tensor([2, 0.5, 0.5, 0.5, 0.5, 0.5, 10])
+                    .view(1, -1, 1)
+                    .expand_as(components_guide["amplitude_formants_noise"])
+                )
+                amplitude_formants_noise_db_norm = torch.zeros_like(
+                    components_guide["amplitude_formants_noise"]
+                )
+                for freqs in range(amplitude_formants_noise_db_norm.shape[1]):
+                    amplitude_formants_noise_db_norm[:, freqs] = minmaxscale_ref(
+                        components_guide["amplitude_formants_noise"][:, freqs],
+                        data_select=components_guide["amplitude_formants_noise"][
+                            :, freqs
+                        ][
+                            torch.where(
+                                components_guide["amplitudes"][:, 0:1].squeeze(1)
+                                < 0.5
+                            )
+                        ],
+                    )
+                amplitude_formants_noise_db_norm = (
+                    amplitude_formants_noise_db_norm * noise_amp_minmax_weight
+                )
+
+            else:
+                amplitude_formants_hamon_db = torchaudio.transforms.AmplitudeToDB()(
+                    components_guide["amplitude_formants_hamon"]
+                )
+                amplitude_formants_hamon_db_norm = (
+                    amplitude_formants_hamon_db.clamp(min=-70) + 70
+                ) / 50
+                amplitude_formants_noise_db = torchaudio.transforms.AmplitudeToDB()(
+                    components_guide["amplitude_formants_noise"]
+                )
+                amplitude_formants_noise_db_norm = (
+                    amplitude_formants_noise_db.clamp(min=-70) + 70
+                ) / 50
+        loudness_db_norm_weight = loudness_db_norm if self.ld_loss_weight else 1
+        if self.alpha_loss_weight:
+            alpha_formant_weight = components_guide["amplitudes"][:, 0:1]
+            alpha_noise_weight = components_guide["amplitudes"][:, 1:2]
+        else:
+            alpha_formant_weight = 1
+            alpha_noise_weight = 1
+        if self.amp_formant_loss_weight:
+            amplitude_formants_hamon_db_norm_weight = (
+                amplitude_formants_hamon_db_norm
+            )
+            amplitude_formants_noise_db_norm_weight = (
+                amplitude_formants_noise_db_norm
+            )
+        else:
+            amplitude_formants_hamon_db_norm_weight = 1
+            amplitude_formants_noise_db_norm_weight = 1
+        if self.freq_single_formant_loss_weight:
+            freq_single_formant_weight = (
+                torch.tensor([6, 3, 2, 1, 1, 1])
+                .view(1, -1, 1)
+                .expand_as(
+                    components_guide["amplitude_formants_hamon"][
+                        :, : self.n_formants_ecog
+                    ]
+                )
+            )
+        else:
+            freq_single_formant_weight = 1
+
+        if self.consonant_loss_weight:
+            consonant_weight = 100 * (
+                torch.sign(components_guide["amplitudes"][:, 1:] - 0.5) * 0.5 + 0.5
+            )
+        else:
+            consonant_weight = 1
+        
+        #we calculate the loss for each speech parameter separately
+        for key in [
+            "loudness",
+            "f0_hz",
+            "amplitudes",
+            "amplitude_formants_hamon",
+            "freq_formants_hamon",
+            "amplitude_formants_noise",
+            "freq_formants_noise",
+            "bandwidth_formants_noise_hz",
+        ]:
+            if key == "loudness":
+                if self.power_synth:
+                    loudness_db_norm_ecog = (
+                        torchaudio.transforms.AmplitudeToDB()(components_ecog[key])
+                        + 70
+                    ) / 50
+                else:
+                    loudness_db_norm_ecog = (
+                        torchaudio.transforms.AmplitudeToDB()(components_ecog[key])
+                        + 70
+                    ) / 50
+                
+                diff = (
+                    alpha["loudness"]
+                    * 150
+                    * torch.mean(
+                        (loudness_db_norm - loudness_db_norm_ecog) ** 2
                     )
                 )
-            else:
-                freq_single_formant_weight = 1
-
-            if self.consonant_loss_weight:
-                consonant_weight = 100 * (
-                    torch.sign(components_guide["amplitudes"][:, 1:] - 0.5) * 0.5 + 0.5
-                )
-            else:
-                consonant_weight = 1
-            for key in [
-                "loudness",
-                "f0_hz",
-                "amplitudes",
-                "amplitude_formants_hamon",
-                "freq_formants_hamon",
-                "amplitude_formants_noise",
-                "freq_formants_noise",
-                "bandwidth_formants_noise_hz",
-            ]:
-                if key == "loudness":
-                    if self.power_synth:
-                        loudness_db_norm_ecog = (
-                            torchaudio.transforms.AmplitudeToDB()(components_ecog[key])
-                            + 70
-                        ) / 50
-                    else:
-                        loudness_db_norm_ecog = (
-                            torchaudio.transforms.AmplitudeToDB()(components_ecog[key])
-                            + 70
-                        ) / 50
-                    
-                    diff = (
-                        alpha["loudness"]
-                        * 150
-                        * torch.mean(
+                tracker.update(
+                    {
+                        "loudness_metric": torch.mean(
                             (loudness_db_norm - loudness_db_norm_ecog) ** 2
+                            * on_stage_wider
                         )
-                    )
-                    tracker.update(
-                        {
-                            "loudness_metric": torch.mean(
-                                (loudness_db_norm - loudness_db_norm_ecog) ** 2
-                                * on_stage_wider
-                            )
-                        }
-                    )
+                    }
+                )
 
-                if key == "f0_hz":
-                    if self.f0_midi:
-                        difftmp = (
-                            hz_to_midi(components_guide[key]) / 4
-                            - hz_to_midi(components_ecog[key]) / 4
-                        )
-                    else:
-                        difftmp = (
-                            components_guide[key] / 200 * 5
-                            - components_ecog[key] / 200 * 5
-                        )
-                    diff = (
-                        alpha["f0_hz"]
-                        * 0.3
-                        * torch.mean(difftmp**2 * on_stage_wider * loudness_db_norm)
+            if key == "f0_hz":
+                if self.f0_midi:
+                    difftmp = (
+                        hz_to_midi(components_guide[key]) / 4
+                        - hz_to_midi(components_ecog[key]) / 4
                     )
-                    diff = self.flooding(diff, alpha["f0_hz"] * betas["f0_hz"])
-                    tracker.update(
-                        {
-                            "f0_metric": torch.mean(
-                                (
-                                    components_guide["f0_hz"] / 200 * 5
-                                    - components_ecog["f0_hz"] / 200 * 5
-                                )
-                                ** 2
-                                * on_stage_wider
-                                * loudness_db_norm
-                            )
-                        }
+                else:
+                    difftmp = (
+                        components_guide[key] / 40
+                        - components_ecog[key] / 40
                     )
-
-                if key in ["amplitudes"]:
-                    weight = on_stage_wider * loudness_db_norm_weight
-                    tmp_target = components_guide[key]
-                    tmp_ecog = components_ecog[key]
-                    if self.alpha_db:
-                        tmp_target = df_norm_torch(tmp_target)[1]
-                        tmp_ecog = df_norm_torch(tmp_ecog)[1]
-
-                    if self.ghm_loss:
-                        diff = (
-                            alpha["amplitudes"]
-                            * 540
-                            * self.lae(tmp_target, tmp_ecog, reweight=weight)
-                        )
-                    else:
-                        diff = (
-                            alpha["amplitudes"]
-                            * 180
-                            * torch.mean((tmp_target - tmp_ecog) ** 2 * weight)
-                        )
-                    diff = self.flooding(
-                        diff, alpha["amplitudes"] * betas["amplitudes"]
-                    )
-                    tracker.update(
-                        {
-                            "amplitudes_metric": torch.mean(
-                                (
-                                    components_guide["amplitudes"]
-                                    - components_ecog["amplitudes"]
-                                )
-                                ** 2
-                                * weight
-                            )
-                        }
-                    )
-
-                if key in ["amplitude_formants_hamon"]:
-                    weight = (
-                        alpha_formant_weight
-                        * on_stage_wider
-                        * consonant_weight
-                        * loudness_db_norm_weight
-                    )
-                    
-                    
-                    if self.amp_energy == 1:
-                        tmp_diff = (
-                            df_norm_torch(
-                                (
-                                    components_guide["loudness"].expand_as(
-                                        components_guide[key][
-                                            :, : self.n_formants_ecog
-                                        ]
-                                    )
-                                    * components_guide[key][
-                                        :, : self.n_formants_ecog
-                                    ]
-                                )
-                            )[1]
-                            - df_norm_torch(
-                                (
-                                    components_guide["loudness"].expand_as(
-                                        components_ecog[key][
-                                            :, : self.n_formants_ecog
-                                        ]
-                                    )
-                                    * components_ecog[key][
-                                        :, : self.n_formants_ecog
-                                    ]
-                                )
-                            )[1]
-                        ) ** 2 * freq_single_formant_weight
-                    elif self.amp_energy == 2:
-                        tmp_diff = (
-                            df_norm_torch(
-                                components_guide[key][:, : self.n_formants_ecog]
-                            )[1]
-                            - df_norm_torch(
-                                components_ecog[key][:, : self.n_formants_ecog]
-                            )[1]
-                        ) ** 2 * freq_single_formant_weight
-                    elif self.amp_energy == 3:
-                        tmp_diff = (
-                            df_norm_torch(
-                                components_guide[key][:, : self.n_formants_ecog]
-                            )[1]
-                            - df_norm_torch(
-                                components_ecog[key][:, : self.n_formants_ecog]
-                            )[1]
-                        ) ** 2 * freq_single_formant_weight + (
+                diff = (
+                    alpha["f0_hz"]
+                    * 0.3
+                    * torch.mean(difftmp**2 * on_stage_wider * loudness_db_norm)
+                )
+                diff = self.flooding(diff, alpha["f0_hz"] * betas["f0_hz"])
+                tracker.update(
+                    {
+                        "f0_metric": torch.mean(
                             (
-                                components_guide[key][:, : self.n_formants_ecog]
-                                - components_ecog[key][:, : self.n_formants_ecog]
+                                components_guide["f0_hz"] / 40
+                                - components_ecog["f0_hz"] / 40
                             )
                             ** 2
-                            * freq_single_formant_weight
-                        )
-                    else:
-                        tmp_diff = (
-                            components_guide[key][:, : self.n_formants_ecog]
-                            - components_ecog[key][:, : self.n_formants_ecog]
-                        ) ** 2 * freq_single_formant_weight
+                            * on_stage_wider
+                            * loudness_db_norm
+                        ) } )
+
+            if key in ["amplitudes"]:
+                weight = on_stage_wider * loudness_db_norm_weight
+                tmp_target = components_guide[key]
+                tmp_ecog = components_ecog[key]
+                if self.alpha_db:
+                    tmp_target = df_norm_torch(tmp_target)[1]
+                    tmp_ecog = df_norm_torch(tmp_ecog)[1]
+
+                if self.ghm_loss:
                     diff = (
-                        alpha["amplitude_formants_hamon"]
-                        * 400
-                        * torch.mean(tmp_diff * weight)
+                        alpha["amplitudes"]
+                        * 540 * self.lae(tmp_target, tmp_ecog, reweight=weight)
                     )
-                    diff = self.flooding(
-                        diff,
-                        alpha["amplitude_formants_hamon"]
-                        * betas["amplitude_formants_hamon"],
+                else:
+                    diff = (
+                        alpha["amplitudes"]
+                        * 180 * torch.mean((tmp_target - tmp_ecog) ** 2 * weight)
                     )
-                    tracker.update(
-                        {
-                            "amplitude_formants_hamon_metric": torch.mean(
-                                (
-                                    components_guide["amplitude_formants_hamon"][
+                diff = self.flooding(
+                    diff, alpha["amplitudes"] * betas["amplitudes"]
+                )
+                tracker.update(
+                    {
+                        "amplitudes_metric": torch.mean(
+                            (
+                                components_guide["amplitudes"]
+                                - components_ecog["amplitudes"]
+                            ) ** 2 * weight
+                        ) } )
+
+            if key in ["amplitude_formants_hamon"]:
+                weight = (
+                    alpha_formant_weight
+                    * on_stage_wider
+                    * consonant_weight
+                    * loudness_db_norm_weight
+                )
+                
+                
+                if self.amp_energy == 1:
+                    tmp_diff = (
+                        df_norm_torch(
+                            (
+                                components_guide["loudness"].expand_as(
+                                    components_guide[key][
                                         :, : self.n_formants_ecog
                                     ]
-                                    - components_ecog["amplitude_formants_hamon"]
                                 )
-                                ** 2
-                                * weight
+                                * components_guide[key][
+                                    :, : self.n_formants_ecog
+                                ]
                             )
-                        }
+                        )[1]
+                        - df_norm_torch(
+                            (
+                                components_guide["loudness"].expand_as(
+                                    components_ecog[key][
+                                        :, : self.n_formants_ecog
+                                    ]
+                                )
+                                * components_ecog[key][
+                                    :, : self.n_formants_ecog
+                                ]
+                            )
+                        )[1]
+                    ) ** 2 * freq_single_formant_weight
+                elif self.amp_energy == 2:
+                    tmp_diff = (
+                        df_norm_torch(
+                            components_guide[key][:, : self.n_formants_ecog]
+                        )[1]
+                        - df_norm_torch(
+                            components_ecog[key][:, : self.n_formants_ecog]
+                        )[1]
+                    ) ** 2 * freq_single_formant_weight
+                elif self.amp_energy == 3:
+                    tmp_diff = (
+                        df_norm_torch(
+                            components_guide[key][:, : self.n_formants_ecog]
+                        )[1]
+                        - df_norm_torch(
+                            components_ecog[key][:, : self.n_formants_ecog]
+                        )[1]
+                    ) ** 2 * freq_single_formant_weight + (
+                        (
+                            components_guide[key][:, : self.n_formants_ecog]
+                            - components_ecog[key][:, : self.n_formants_ecog]
+                        )
+                        ** 2
+                        * freq_single_formant_weight
                     )
-                if key in ["freq_formants_hamon"]:
-                    weight = (
-                        alpha_formant_weight
-                        * on_stage_wider
-                        * consonant_weight
-                        * loudness_db_norm_weight
-                    )
-
+                else:
                     tmp_diff = (
                         components_guide[key][:, : self.n_formants_ecog]
                         - components_ecog[key][:, : self.n_formants_ecog]
                     ) ** 2 * freq_single_formant_weight
-                    diff = (
-                        alpha["freq_formants_hamon"]
-                        * 300
-                        * torch.mean(
-                            tmp_diff
-                            * amplitude_formants_hamon_db_norm_weight
-                            * weight
-                        )
-                    )
-                    diff = self.flooding(
-                        diff,
-                        alpha["freq_formants_hamon"] * betas["freq_formants_hamon"],
-                    )
-                    tracker.update(
-                        {
-                            "freq_formants_hamon_hz_metric_2": torch.mean(
-                                (
-                                    components_guide["freq_formants_hamon_hz"][:, :2]
-                                    / 400
-                                    - components_ecog["freq_formants_hamon_hz"][:, :2]
-                                    / 400
-                                )
-                                ** 2
-                                * weight
-                            )
-                        }
-                    )
-                    tracker.update(
-                        {
-                            "freq_formants_hamon_hz_metric_"
-                            + str(self.n_formants_ecog): torch.mean(
-                                (
-                                    components_guide["freq_formants_hamon_hz"][
-                                        :, : self.n_formants_ecog
-                                    ]
-                                    / 400
-                                    - components_ecog["freq_formants_hamon_hz"][
-                                        :, : self.n_formants_ecog
-                                    ]
-                                    / 400
-                                )
-                                ** 2
-                                * weight
-                            )
-                        }
-                    )
-                if key in ["amplitude_formants_noise"]:
-                    weight = (
-                        alpha_noise_weight
-                        * on_stage_wider
-                        * consonant_weight
-                        * loudness_db_norm_weight
-                    )
-
-                    tmp_target = torch.cat(
-                        [
-                            components_guide[key][:, : self.n_formants_ecog],
-                            components_guide[key][:, -self.n_formants_noise :],
-                        ],
-                        dim=1,
-                    )
-                    tmp_ecog = components_ecog[key]
-                    if self.amp_energy == 1:
-                        tmp_diff = (
-                            df_norm_torch(
-                                (
-                                    components_guide["loudness"].expand_as(
-                                        tmp_target
-                                    )
-                                    * tmp_target
-                                )
-                            )[1]
-                            - df_norm_torch(
-                                (
-                                    components_guide["loudness"].expand_as(tmp_ecog)
-                                    * tmp_ecog
-                                )
-                            )[1]
-                        ) ** 2 * freq_single_formant_weight
-                    elif self.amp_energy == 2:
-                        tmp_diff = (
-                            df_norm_torch(tmp_target)[1]
-                            - df_norm_torch(tmp_ecog)[1]
-                        ) ** 2 * freq_single_formant_weight
-                    elif self.amp_energy == 3:
-                        tmp_diff = (
-                            df_norm_torch(tmp_target)[1]
-                            - df_norm_torch(tmp_ecog)[1]
-                        ) ** 2 * freq_single_formant_weight + (
-                            tmp_target - tmp_ecog
-                        ) ** 2 * freq_single_formant_weight
-                    else:
-                        tmp_diff = (
-                            tmp_target - tmp_ecog
-                        ) ** 2 * freq_single_formant_weight
-                    diff = (
-                        alpha["amplitude_formants_noise"]
-                        * 400
-                        * torch.mean(tmp_diff * weight)
-                    )
-                    diff = self.flooding(
-                        diff,
-                        alpha["amplitude_formants_noise"]
-                        * betas["amplitude_formants_noise"],
-                    )
-                    tracker.update(
-                        {
-                            "amplitude_formants_noise_metric": torch.mean(
-                                (
-                                    torch.cat(
-                                        [
-                                            components_guide[key][
-                                                :, : self.n_formants_ecog
-                                            ],
-                                            components_guide[key][
-                                                :, -self.n_formants_noise :
-                                            ],
-                                        ],
-                                        dim=1,
-                                    )
-                                    - components_ecog[key]
-                                )
-                                ** 2
-                                * weight
-                            )
-                        }
-                    )
-
-                if key in ["freq_formants_noise"]:
-                    weight = (
-                        alpha_noise_weight
-                        * on_stage_wider
-                        * consonant_weight
-                        * loudness_db_norm_weight
-                    )
-
-                    diff = (
-                        alpha["freq_formants_noise"]
-                        * 12000
-                        * torch.mean(
+                diff = (
+                    alpha["amplitude_formants_hamon"]
+                    * 400
+                    * torch.mean(tmp_diff * weight)
+                )
+                diff = self.flooding(
+                    diff,
+                    alpha["amplitude_formants_hamon"]
+                    * betas["amplitude_formants_hamon"],
+                )
+                tracker.update(
+                    {
+                        "amplitude_formants_hamon_metric": torch.mean(
                             (
-                                components_guide[key][:, -self.n_formants_noise :]
-                                - components_ecog[key][:, -self.n_formants_noise :]
+                                components_guide["amplitude_formants_hamon"][
+                                    :, : self.n_formants_ecog
+                                ]
+                                - components_ecog["amplitude_formants_hamon"]
                             )
                             ** 2
                             * weight
-                            * amplitude_formants_noise_db_norm_weight
                         )
-                    )
-                    diff = self.flooding(
-                        diff,
-                        alpha["freq_formants_noise"] * betas["freq_formants_noise"],
-                    )
-                    tracker.update(
-                        {
-                            "freq_formants_noise_metric": torch.mean(
-                                (
-                                    components_guide["freq_formants_noise_hz"][
-                                        :, -self.n_formants_noise :
-                                    ]
-                                    / 400
-                                    - components_ecog["freq_formants_noise_hz"][
-                                        :, -self.n_formants_noise :
-                                    ]
-                                    / 400
-                                ) ** 2 * weight
-                            )
-                        }
-                    )
+                    }
+                )
+            if key in ["freq_formants_hamon"]:
+                weight = (
+                    alpha_formant_weight
+                    * on_stage_wider
+                    * consonant_weight
+                    * loudness_db_norm_weight
+                )
 
-                if key in ["bandwidth_formants_noise_hz"]:
-                    weight = (
-                        alpha_noise_weight
-                        * on_stage_wider
-                        * consonant_weight
-                        * loudness_db_norm_weight
+                tmp_diff = (
+                    components_guide[key][:, : self.n_formants_ecog]
+                    - components_ecog[key][:, : self.n_formants_ecog]
+                ) ** 2 * freq_single_formant_weight
+                diff = (
+                    alpha["freq_formants_hamon"]
+                    * 300
+                    * torch.mean(
+                        tmp_diff
+                        * amplitude_formants_hamon_db_norm_weight
+                        * weight
                     )
-                    diff = (
-                            alpha["bandwidth_formants_noise_hz"]
-                            * 3
-                            * torch.mean(
-                                (
-                                    components_guide[key][:, -self.n_formants_noise :]
-                                    / 400
-                                    - components_ecog[key][:, -self.n_formants_noise :]
-                                    / 400
-                                ) ** 2 * weight
+                )
+                diff = self.flooding(
+                    diff,
+                    alpha["freq_formants_hamon"] * betas["freq_formants_hamon"],
+                )
+                tracker.update(
+                    {
+                        "freq_formants_hamon_hz_metric_2": torch.mean(
+                            (
+                                components_guide["freq_formants_hamon_hz"][:, :2]
+                                / 400
+                                - components_ecog["freq_formants_hamon_hz"][:, :2]
+                                / 400
                             )
+                            ** 2
+                            * weight
                         )
-                    diff = self.flooding(
-                        diff,
+                    }
+                )
+                tracker.update(
+                    {
+                        "freq_formants_hamon_hz_metric_"
+                        + str(self.n_formants_ecog): torch.mean(
+                            (
+                                components_guide["freq_formants_hamon_hz"][
+                                    :, : self.n_formants_ecog
+                                ]
+                                / 400
+                                - components_ecog["freq_formants_hamon_hz"][
+                                    :, : self.n_formants_ecog
+                                ]
+                                / 400
+                            )
+                            ** 2
+                            * weight
+                        )
+                    }
+                )
+            if key in ["amplitude_formants_noise"]:
+                weight = (
+                    alpha_noise_weight
+                    * on_stage_wider
+                    * consonant_weight
+                    * loudness_db_norm_weight
+                )
+
+                tmp_target = torch.cat(
+                    [
+                        components_guide[key][:, : self.n_formants_ecog],
+                        components_guide[key][:, -self.n_formants_noise :],
+                    ],
+                    dim=1,
+                )
+                tmp_ecog = components_ecog[key]
+                if self.amp_energy == 1:
+                    tmp_diff = (
+                        df_norm_torch(
+                            (
+                                components_guide["loudness"].expand_as(
+                                    tmp_target
+                                )
+                                * tmp_target
+                            )
+                        )[1]
+                        - df_norm_torch(
+                            (
+                                components_guide["loudness"].expand_as(tmp_ecog)
+                                * tmp_ecog
+                            )
+                        )[1]
+                    ) ** 2 * freq_single_formant_weight
+                elif self.amp_energy == 2:
+                    tmp_diff = (
+                        df_norm_torch(tmp_target)[1]
+                        - df_norm_torch(tmp_ecog)[1]
+                    ) ** 2 * freq_single_formant_weight
+                elif self.amp_energy == 3:
+                    tmp_diff = (
+                        df_norm_torch(tmp_target)[1]
+                        - df_norm_torch(tmp_ecog)[1]
+                    ) ** 2 * freq_single_formant_weight + (
+                        tmp_target - tmp_ecog
+                    ) ** 2 * freq_single_formant_weight
+                else:
+                    tmp_diff = (
+                        tmp_target - tmp_ecog
+                    ) ** 2 * freq_single_formant_weight
+                diff = (
+                    alpha["amplitude_formants_noise"]
+                    * 400
+                    * torch.mean(tmp_diff * weight)
+                )
+                diff = self.flooding(
+                    diff,
+                    alpha["amplitude_formants_noise"]
+                    * betas["amplitude_formants_noise"],
+                )
+                tracker.update(
+                    {
+                        "amplitude_formants_noise_metric": torch.mean(
+                            (
+                                torch.cat(
+                                    [
+                                        components_guide[key][
+                                            :, : self.n_formants_ecog
+                                        ],
+                                        components_guide[key][
+                                            :, -self.n_formants_noise :
+                                        ],
+                                    ],
+                                    dim=1,
+                                )
+                                - components_ecog[key]
+                            )
+                            ** 2
+                            * weight
+                        )
+                    }
+                )
+
+            if key in ["freq_formants_noise"]:
+                weight = (
+                    alpha_noise_weight
+                    * on_stage_wider
+                    * consonant_weight
+                    * loudness_db_norm_weight
+                )
+
+                diff = (
+                    alpha["freq_formants_noise"]
+                    * 12000
+                    * torch.mean(
+                        (
+                            components_guide[key][:, -self.n_formants_noise :]
+                            - components_ecog[key][:, -self.n_formants_noise :]
+                        )
+                        ** 2
+                        * weight
+                        * amplitude_formants_noise_db_norm_weight
+                    )
+                )
+                diff = self.flooding(
+                    diff,
+                    alpha["freq_formants_noise"] * betas["freq_formants_noise"],
+                )
+                tracker.update(
+                    {
+                        "freq_formants_noise_metric": torch.mean(
+                            (
+                                components_guide["freq_formants_noise_hz"][
+                                    :, -self.n_formants_noise :
+                                ]
+                                / 400
+                                - components_ecog["freq_formants_noise_hz"][
+                                    :, -self.n_formants_noise :
+                                ]
+                                / 400
+                            ) ** 2 * weight
+                        )
+                    }
+                )
+
+            if key in ["bandwidth_formants_noise_hz"]:
+                weight = (
+                    alpha_noise_weight
+                    * on_stage_wider
+                    * consonant_weight
+                    * loudness_db_norm_weight
+                )
+                diff = (
                         alpha["bandwidth_formants_noise_hz"]
-                        * betas["bandwidth_formants_noise_hz"],
+                        * 3
+                        * torch.mean(
+                            (
+                                components_guide[key][:, -self.n_formants_noise :]
+                                / 400
+                                - components_ecog[key][:, -self.n_formants_noise :]
+                                / 400
+                            ) ** 2 * weight
+                        )
                     )
-                    tracker.update(
-                        {
-                            "bandwidth_formants_noise_hz_metric": torch.mean(
-                                (
-                                    components_guide[key][:, -self.n_formants_noise :]
-                                    / 400
-                                    - components_ecog[key][:, -self.n_formants_noise :]
-                                    / 400
-                                ) ** 2 * weight
-                            )
-                        }
-                    )
+                diff = self.flooding(
+                    diff,
+                    alpha["bandwidth_formants_noise_hz"]
+                    * betas["bandwidth_formants_noise_hz"],
+                )
+                tracker.update(
+                    {
+                        "bandwidth_formants_noise_hz_metric": torch.mean(
+                            (
+                                components_guide[key][:, -self.n_formants_noise :]
+                                / 400
+                                - components_ecog[key][:, -self.n_formants_noise :]
+                                / 400
+                            ) ** 2 * weight
+                        )
+                    }
+                )
 
-                tracker.update({key: diff})
-                Lcomp += diff
+            tracker.update({key: diff})
+            Lcomp += diff
 
         if self.component_regression:
-            print("component regression!")
+            # we only regress to speech parameters without spectrogram decoding loss
             Loss = Lcomp
         else:
             Loss = Lrec + Lcomp
@@ -1257,8 +1236,7 @@ class Model(nn.Module):
     
     def run_a2a_loss(self, rec,
         spec,x_amp_from_denoise,x_denoise,x_mel,x_amp,
-        components,
-        tracker,
+        components, tracker,
         voice,unvoice,semivoice,plosive,fricative,
         duomask,hamonic_bias,pitch_aug,epoch_current,
         gender,pitch_label,formant_label,
@@ -1294,6 +1272,7 @@ class Model(nn.Module):
             rec_amp = amplitude(rec, self.noise_db, self.max_db).transpose(
                 -2, -1
             )
+            #STOI loss
             if self.use_stoi:
                 if spec_amp.shape[-2] == 256:
                     stoi_loss = (
@@ -1336,6 +1315,7 @@ class Model(nn.Module):
                 self.noise_db,
                 self.max_db,
             )
+            #spectrogram reconstruction loss (mel-scale)
             Lae += 8 * self.lae(
                 rec_mel * freq_linear_reweighting2,
                 spec_mel * freq_linear_reweighting2,
@@ -1344,24 +1324,7 @@ class Model(nn.Module):
                 suffix="2",
             )
 
-        if self.do_mel_guide:
-            rec_mel = self.decoder_mel.forward(components)
-            freq_linear_reweighting_mel = (
-                (
-                    inverse_mel_scale(freq_cord2[..., 1:])
-                    - inverse_mel_scale(freq_cord2[..., :-1])
-                )
-                / 440 * 7
-            )
-            
-            Lae_mel = 4 * self.lae(
-                rec_mel * freq_linear_reweighting_mel,
-                x_mel * freq_linear_reweighting_mel,
-                tracker=None,
-            )
-            tracker.update(dict(Lae_mel=Lae_mel))
-            Lae += Lae_mel
-       
+        #if we have alpha additional supervision loss (needs careful labelling of phonemes which is not always available)
         if self.alpha_sup and voice is not None and unvoice is not None:
             Lsilence = 10 * (
                 (components["amplitudes"][:, 0:1][on_stage == 0] - 0.0) ** 2
@@ -1446,26 +1409,13 @@ class Model(nn.Module):
                     Lfricativeband=Lfricativeband,
                 )
             )
-        if x_amp_from_denoise:
-            if self.wavebased:
-                if self.power_synth:
-                    Lloudness = (
-                        10**6
-                        * (components["loudness"] * (1 - on_stage_wider)).mean()
-                    )
-                else:
-                    Lloudness = (
-                        10**6
-                        * (components["loudness"] * (1 - on_stage_wider)).mean()
-                    )
-                tracker.update(dict(Lloudness=Lloudness))
-                Lae += Lloudness
-        else:
-            Lloudness = (
-                10**6 * (components["loudness"] * (1 - on_stage_wider)).mean()
-            )
-            tracker.update(dict(Lloudness=Lloudness))
-            Lae += Lloudness
+
+        #loudness loss which discourages silent parts loudness values be too high
+        Lloudness = (
+            10**6 * (components["loudness"] * (1 - on_stage_wider)).mean()
+        )
+        tracker.update(dict(Lloudness=Lloudness))
+        Lae += Lloudness
 
         if self.wavebased and x_denoise is not None:
             thres = (
@@ -1498,116 +1448,28 @@ class Model(nn.Module):
             )
             tracker.update(dict(Lae_denoise=Lae_denoise))
             Lae += Lae_denoise
+        
         freq_limit = self.encoder.formant_freq_limits_abs.squeeze()
-
         freq_limit = (
             hz2ind(freq_limit, self.n_fft).long()
             if self.wavebased
             else mel_scale(self.spec_chans, freq_limit).long()
         )
-        if not self.wavebased:
-            n_formant_noise = (
-                components["freq_formants_noise"].shape[1]
-                - components["freq_formants_hamon"].shape[1]
-            )
-            for formant in range(
-                components["freq_formants_hamon"].shape[1] - 1, 1, -1
-            ):
-                components_copy = {i: j.clone() for i, j in components.items()}
-                components_copy["freq_formants_hamon"] = components_copy[
-                    "freq_formants_hamon"
-                ][:, :formant]
-                components_copy["freq_formants_hamon_hz"] = components_copy[
-                    "freq_formants_hamon_hz"
-                ][:, :formant]
-                components_copy["bandwidth_formants_hamon"] = components_copy[
-                    "bandwidth_formants_hamon"
-                ][:, :formant]
-                components_copy[
-                    "bandwidth_formants_hamon_hz"
-                ] = components_copy["bandwidth_formants_hamon_hz"][:, :formant]
-                components_copy["amplitude_formants_hamon"] = components_copy[
-                    "amplitude_formants_hamon"
-                ][:, :formant]
-                if duomask:
-                    components_copy["freq_formants_noise"] = torch.cat(
-                        [
-                            components_copy["freq_formants_noise"][:, :formant],
-                            components_copy["freq_formants_noise"][
-                                :, -n_formant_noise:
-                            ],
-                        ],
-                        dim=1,
-                    )
-                    components_copy["freq_formants_noise_hz"] = torch.cat(
-                        [
-                            components_copy["freq_formants_noise_hz"][
-                                :, :formant
-                            ],
-                            components_copy["freq_formants_noise_hz"][
-                                :, -n_formant_noise:
-                            ],
-                        ],
-                        dim=1,
-                    )
-                    components_copy["bandwidth_formants_noise"] = torch.cat(
-                        [
-                            components_copy["bandwidth_formants_noise"][
-                                :, :formant
-                            ],
-                            components_copy["bandwidth_formants_noise"][
-                                :, -n_formant_noise:
-                            ],
-                        ],
-                        dim=1,
-                    )
-                    components_copy["bandwidth_formants_noise_hz"] = torch.cat(
-                        [
-                            components_copy["bandwidth_formants_noise_hz"][
-                                :, :formant
-                            ],
-                            components_copy["bandwidth_formants_noise_hz"][
-                                :, -n_formant_noise:
-                            ],
-                        ],
-                        dim=1,
-                    )
-                    components_copy["amplitude_formants_noise"] = torch.cat(
-                        [
-                            components_copy["amplitude_formants_noise"][
-                                :, :formant
-                            ],
-                            components_copy["amplitude_formants_noise"][
-                                :, -n_formant_noise:
-                            ],
-                        ],
-                        dim=1,
-                    )
 
-                rec = self.decoder.forward(
-                    components_copy,
-                    enable_noise_excitation=True if self.wavebased else True,
-                    onstage=on_stage,
-                )
-                Lae += 1 * self.lae(
-                    (rec * freq_linear_reweighting),
-                    (spec * freq_linear_reweighting),
-                    tracker=tracker,
-                )
-        else:
-            Lamp = 30 * torch.mean(
-                F.relu(
-                    -components["amplitude_formants_hamon"][:, 0:3]
-                    + components["amplitude_formants_hamon"][:, 1:4]
-                )
-                * (
-                    components["amplitudes"][:, 0:1]
-                    > components["amplitudes"][:, 1:2]
-                ).float()
+        Lamp = 30 * torch.mean(
+            F.relu(
+                -components["amplitude_formants_hamon"][:, 0:3]
+                + components["amplitude_formants_hamon"][:, 1:4]
             )
-            tracker.update(dict(Lamp=Lamp))
-            Lae += Lamp
+            * (
+                components["amplitudes"][:, 0:1]
+                > components["amplitudes"][:, 1:2]
+            ).float()
+        )
+        tracker.update(dict(Lamp=Lamp))
+        Lae += Lamp
         tracker.update(dict(Lae=Lae))
+        
         thres = (
             int(hz2ind(4000, self.n_fft))
             if self.wavebased
@@ -1620,10 +1482,7 @@ class Model(nn.Module):
                 )
                 - torch.mean(
                     (spec * freq_linear_reweighting)[..., :thres], dim=-1
-                )
-            )
-            * 0.5
-            + 0.5
+                ) ) * 0.5 + 0.5
         )
         Lexp = (
             torch.mean(
@@ -1632,11 +1491,11 @@ class Model(nn.Module):
                     - components["amplitudes"][:, 1:2]
                 )
                 * explosive
-            )
-            * 100
+            ) * 100
         )
         tracker.update(dict(Lexp=Lexp))
         Lae += Lexp
+        
         if hamonic_bias:
             hamonic_loss = 1000 * torch.mean(
                 (1 - components["amplitudes"][:, 0]) * on_stage
@@ -1644,8 +1503,7 @@ class Model(nn.Module):
             Lae += hamonic_loss
         if pitch_aug:
             pitch_shift = 2 ** (
-                -1.5
-                + 3
+                -1.5 + 3
                 * torch.rand([components["f0_hz"].shape[0]]).to(torch.float32)
             ).reshape(
                 [components["f0_hz"].shape[0], 1, 1]
@@ -1884,43 +1742,19 @@ class Model(nn.Module):
                 )
                 self.encoder.requires_grad_(False)
 
-                if (
-                    self.auto_regressive
-                ):  
-                    (
-                        rec,
-                        components_ecog,
-                        spec,
-                        components_guide,
-                    ) = self.generate_fromecog(
-                        ecog,
-                        return_components=True,
-                        gt_comp=components_guide,
-                        gt_spec=spec,
-                        gender=gender,
-                        onstage=on_stage,
-                    )
-                    on_stage = on_stage[:, :, 1:]
-                    on_stage_wider = on_stage_wider[:, :, 1:]
-                    voice = voice[:, :, 1:]
-                    unvoice = unvoice[:, :, 1:]
-                    semivoice = semivoice[:, :, 1:]
-                    plosive = plosive[:, :, 1:]
-                    fricative = fricative[:, :, 1:]
-                else:
-                    rec, components_ecog = self.generate_fromecog(
+                rec, components_ecog = self.generate_fromecog(
+                    ecog,
+                    return_components=True,
+                    gender=gender,
+                    onstage=on_stage,
+                )
+                if self.rdropout != 0:
+                    rec1, components_ecog1 = self.generate_fromecog(
                         ecog,
                         return_components=True,
                         gender=gender,
                         onstage=on_stage,
                     )
-                    if self.rdropout != 0:
-                        rec1, components_ecog1 = self.generate_fromecog(
-                            ecog,
-                            return_components=True,
-                            gender=gender,
-                            onstage=on_stage,
-                        )
 
                 betas = {
                     "loudness": 0.01,
@@ -1995,7 +1829,7 @@ class Model(nn.Module):
                 list(self.decoder.parameters())
                 + list(self.encoder.parameters())
                 + (
-                    list(self.ecog_encoder.parameters())
+                    list(self.ecog_decoder.parameters())
                     if self.with_ecog else []
                 )
                 + (list(self.decoder_mel.parameters()) if self.do_mel_guide else [])
@@ -2005,7 +1839,7 @@ class Model(nn.Module):
                 list(other.decoder.parameters())
                 + list(other.encoder.parameters())
                 + (
-                    list(other.ecog_encoder.parameters())
+                    list(other.ecog_decoder.parameters())
                     if self.with_ecog else []
                 )
                 + (list(other.decoder_mel.parameters()) if self.do_mel_guide else [])

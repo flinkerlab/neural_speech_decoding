@@ -257,7 +257,7 @@ def load_model_checkpoint(
     model = Model(
         generator=cfg.MODEL.GENERATOR,
         encoder=cfg.MODEL.ENCODER,
-        ecog_encoder_name=cfg.MODEL.MAPPING_FROM_ECOG,
+        ecog_decoder_name=cfg.MODEL.MAPPING_FROM_ECOG,
         spec_chans=cfg.DATASET.SPEC_CHANS,
         n_formants=cfg.MODEL.N_FORMANTS,
         n_formants_noise=cfg.MODEL.N_FORMANTS_NOISE,
@@ -317,7 +317,7 @@ def load_model_checkpoint(
     model_s = Model(
         generator=cfg.MODEL.GENERATOR,
         encoder=cfg.MODEL.ENCODER,
-        ecog_encoder_name=cfg.MODEL.MAPPING_FROM_ECOG,
+        ecog_decoder_name=cfg.MODEL.MAPPING_FROM_ECOG,
         spec_chans=cfg.DATASET.SPEC_CHANS,
         n_formants=cfg.MODEL.N_FORMANTS,
         n_formants_noise=cfg.MODEL.N_FORMANTS_NOISE,
@@ -384,20 +384,20 @@ def load_model_checkpoint(
         model.device_ids = None
         decoder = model.module.decoder
         encoder = model.module.encoder
-        if hasattr(model.module, "ecog_encoder"):
-            ecog_encoder = model.module.ecog_encoder
+        if hasattr(model.module, "ecog_decoder"):
+            ecog_decoder = model.module.ecog_decoder
             if torch.cuda.is_available():
-                ecog_encoder = ecog_encoder.cuda(local_rank)
-            # ecog_encoder.performer.cuda(local_rank)
+                ecog_decoder = ecog_decoder.cuda(local_rank)
+            # ecog_decoder.performer.cuda(local_rank)
         if hasattr(model.module, "decoder_mel"):
             decoder_mel = model.module.decoder_mel
     else:
         decoder = model.decoder
         encoder = model.encoder
-        if hasattr(model, "ecog_encoder"):
-            ecog_encoder = model.ecog_encoder
+        if hasattr(model, "ecog_decoder"):
+            ecog_decoder = model.ecog_decoder
             if torch.cuda.is_available():
-                ecog_encoder = ecog_encoder.cuda(local_rank)
+                ecog_decoder = ecog_decoder.cuda(local_rank)
         if hasattr(model, "decoder_mel"):
             decoder_mel = model.decoder_mel
     logger.info("Trainable parameters generator:")
@@ -408,7 +408,7 @@ def load_model_checkpoint(
     if cfg.MODEL.ECOG:
         if cfg.MODEL.SUPLOSS_ON_ECOGF:
             optimizer = LREQAdam(
-                [{"params": ecog_encoder.parameters()}],
+                [{"params": ecog_decoder.parameters()}],
                 lr=cfg.TRAIN.BASE_LEARNING_RATE,
                 betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1),
                 weight_decay=0,
@@ -416,7 +416,7 @@ def load_model_checkpoint(
         else:
             optimizer = LREQAdam(
                 [
-                    {"params": ecog_encoder.parameters()},
+                    {"params": ecog_decoder.parameters()},
                     {"params": decoder.parameters()},
                 ],
                 lr=cfg.TRAIN.BASE_LEARNING_RATE,
@@ -447,15 +447,15 @@ def load_model_checkpoint(
         "encoder": encoder,
         "generator": decoder,
     }
-    if hasattr(model, "ecog_encoder"):
-        model_dict["ecog_encoder"] = ecog_encoder
+    if hasattr(model, "ecog_decoder"):
+        model_dict["ecog_decoder"] = ecog_decoder
     if hasattr(model, "decoder_mel"):
         model_dict["decoder_mel"] = decoder_mel
     if local_rank == 0:
         model_dict["encoder_s"] = model_s.encoder.to(device)
         model_dict["generator_s"] = model_s.decoder.to(device)
-        if hasattr(model_s, "ecog_encoder"):
-            model_dict["ecog_encoder_s"] = model_s.ecog_encoder.to(device)
+        if hasattr(model_s, "ecog_decoder"):
+            model_dict["ecog_decoder_s"] = model_s.ecog_decoder.to(device)
         if hasattr(model_s, "decoder_mel"):
             model_dict["decoder_mel_s"] = model_s.decoder_mel
     noise_dist = torch.from_numpy(dataset_all[subject].noise_dist).to(device).float()
@@ -465,7 +465,7 @@ def load_model_checkpoint(
     if cfg.MODEL.ECOG:
         if cfg.MODEL.SUPLOSS_ON_ECOGF:
             optimizer = LREQAdam(
-                [{"params": ecog_encoder.parameters()}],
+                [{"params": ecog_decoder.parameters()}],
                 lr=cfg.TRAIN.BASE_LEARNING_RATE,
                 betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1),
                 weight_decay=0,
@@ -473,7 +473,7 @@ def load_model_checkpoint(
         else:
             optimizer = LREQAdam(
                 [
-                    {"params": ecog_encoder.parameters()},
+                    {"params": ecog_decoder.parameters()},
                     {"params": decoder.parameters()},
                 ],
                 lr=cfg.TRAIN.BASE_LEARNING_RATE,
@@ -525,7 +525,7 @@ def load_model_checkpoint(
         model_s,
         encoder,
         decoder,
-        ecog_encoder,
+        ecog_decoder,
         optimizer,
         tracker,
         tracker_test,
@@ -582,7 +582,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
         model_s_all,
         encoder_all,
         decoder_all,
-        ecog_encoder_all,
+        ecog_decoder_all,
         optimizer_all,
     ) = ({}, {}, {}, {}, {}, {}, {})
 
@@ -617,7 +617,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
             model_s_all[subject],
             encoder_all[subject],
             decoder_all[subject],
-            ecog_encoder_all[subject],
+            ecog_decoder_all[subject],
             optimizer_all[subject],
             tracker,
             tracker_test,
@@ -633,17 +633,17 @@ def train(cfg, logger, local_rank, world_size, distributed):
             single_patient_mapping=single_patient_mapping,param=param
         )
     loadsub = train_subject_info[0]
-    ecog_encoder_shared = ecog_encoder_all[loadsub]
+    ecog_decoder_shared = ecog_decoder_all[loadsub]
 
     for single_patient_mapping, subject in enumerate(
         np.union1d(train_subject_info, test_subject_info)
     ):
         model_all[
             subject
-        ].ecog_encoder = ecog_encoder_shared
+        ].ecog_decoder = ecog_decoder_shared
         model_s_all[
             subject
-        ].ecog_encoder = ecog_encoder_shared
+        ].ecog_decoder = ecog_decoder_shared
     (   
         ecog_test_all,
         sample_wave_test_all,
@@ -815,8 +815,8 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     ecog_test_all[subject],
                     encoder_all[subject],
                     decoder_all[subject],
-                    ecog_encoder_shared
-                    if hasattr(model_all[subject], "ecog_encoder")
+                    ecog_decoder_shared
+                    if hasattr(model_all[subject], "ecog_decoder")
                     else None,
                     encoder2
                     if hasattr(model_all[subject], "encoder2")

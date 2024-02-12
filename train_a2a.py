@@ -294,7 +294,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
     model = Model(
         generator=cfg.MODEL.GENERATOR,
         encoder=cfg.MODEL.ENCODER,
-        ecog_encoder_name=cfg.MODEL.MAPPING_FROM_ECOG,
+        ecog_decoder_name=cfg.MODEL.MAPPING_FROM_ECOG,
         spec_chans=cfg.DATASET.SPEC_CHANS,
         n_formants=cfg.MODEL.N_FORMANTS,
         n_formants_noise=cfg.MODEL.N_FORMANTS_NOISE,
@@ -352,7 +352,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
     model_s = Model(
         generator=cfg.MODEL.GENERATOR,
         encoder=cfg.MODEL.ENCODER,
-        ecog_encoder_name=cfg.MODEL.MAPPING_FROM_ECOG,
+        ecog_decoder_name=cfg.MODEL.MAPPING_FROM_ECOG,
         spec_chans=cfg.DATASET.SPEC_CHANS,
         n_formants=cfg.MODEL.N_FORMANTS,
         n_formants_noise=cfg.MODEL.N_FORMANTS_NOISE,
@@ -417,10 +417,10 @@ def train(cfg, logger, local_rank, world_size, distributed):
         model.device_ids = None
         decoder = model.module.decoder
         encoder = model.module.encoder
-        if hasattr(model.module, "ecog_encoder"):
-            ecog_encoder = model.module.ecog_encoder
+        if hasattr(model.module, "ecog_decoder"):
+            ecog_decoder = model.module.ecog_decoder
         else:
-            ecog_encoder = None
+            ecog_decoder = None
         if hasattr(model.module, "encoder2"):
             encoder2 = model.module.encoder2
         else:
@@ -430,10 +430,10 @@ def train(cfg, logger, local_rank, world_size, distributed):
     else:
         decoder = model.decoder
         encoder = model.encoder
-        if hasattr(model, "ecog_encoder"):
-            ecog_encoder = model.ecog_encoder
+        if hasattr(model, "ecog_decoder"):
+            ecog_decoder = model.ecog_decoder
         else:
-            ecog_encoder = None
+            ecog_decoder = None
         if hasattr(model, "encoder2"):
             encoder2 = model.encoder2
         else:
@@ -443,10 +443,10 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
     arguments = dict()
     arguments["iteration"] = 0
-    if hasattr(model, "ecog_encoder"):
+    if hasattr(model, "ecog_decoder"):
         if cfg.MODEL.SUPLOSS_ON_ECOGF:
             optimizer = LREQAdam(
-                [{"params": ecog_encoder.parameters()}],
+                [{"params": ecog_decoder.parameters()}],
                 lr=cfg.TRAIN.BASE_LEARNING_RATE,
                 betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1),
                 weight_decay=0,
@@ -454,7 +454,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
         else:
             optimizer = LREQAdam(
                 [
-                    {"params": ecog_encoder.parameters()},
+                    {"params": ecog_decoder.parameters()},
                     {"params": decoder.parameters()},
                 ],
                 lr=cfg.TRAIN.BASE_LEARNING_RATE,
@@ -492,8 +492,8 @@ def train(cfg, logger, local_rank, world_size, distributed):
         "encoder": encoder,
         "generator": decoder,
     }
-    if hasattr(model, "ecog_encoder"):
-        model_dict["ecog_encoder"] = ecog_encoder
+    if hasattr(model, "ecog_decoder"):
+        model_dict["ecog_decoder"] = ecog_decoder
     if hasattr(model, "encoder2"):
         model_dict["encoder2"] = encoder2
     if hasattr(model, "decoder_mel"):
@@ -501,8 +501,8 @@ def train(cfg, logger, local_rank, world_size, distributed):
     if local_rank == 0:
         model_dict["encoder_s"] = model_s.encoder
         model_dict["generator_s"] = model_s.decoder
-        if hasattr(model_s, "ecog_encoder"):
-            model_dict["ecog_encoder_s"] = model_s.ecog_encoder
+        if hasattr(model_s, "ecog_decoder"):
+            model_dict["ecog_decoder_s"] = model_s.ecog_decoder
         if hasattr(model_s, "encoder2"):
             model_dict["encoder2_s"] = model_s.encoder2
         if hasattr(model_s, "decoder_mel"):
@@ -855,7 +855,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     ecog,
                     encoder,
                     decoder,
-                    ecog_encoder if cfg.MODEL.ECOG else None,
+                    ecog_decoder if cfg.MODEL.ECOG else None,
                     encoder2,
                     x_denoise=x_orig_denoise,
                     decoder_mel=decoder_mel if cfg.MODEL.DO_MEL_GUIDE else None,
@@ -895,7 +895,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
                         ecog_test_all[subject],
                         encoder,
                         decoder,
-                        ecog_encoder if cfg.MODEL.ECOG else None,
+                        ecog_decoder if cfg.MODEL.ECOG else None,
                         encoder2,
                         x_denoise=None,
                         decoder_mel=decoder_mel if cfg.MODEL.DO_MEL_GUIDE else None,

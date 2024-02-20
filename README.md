@@ -2,6 +2,11 @@
 
 By Xupeng Chen, Ran Wang, Amirhossein Khalilian-Gourtani, Leyao Yu, Patricia Dugan, Daniel Friedman, Werner Doyle, Orrin Devinsky, Yao Wang, Adeen Flinker
 
+
+## DEMO
+
+Check our [Demo Page](https://xc1490.github.io/nsd/)
+
 ## Introduction
 Our ECoG to Speech decoding framework is initially described in [A Neural Speech Decoding Framework Leveraging Deep Learning and Speech Synthesis](https://www.biorxiv.org/content/10.1101/2023.09.16.558028v1). We present a novel deep learning-based neural speech decoding framework that includes an ECoG Decoder that translates electrocorticographic (ECoG) signals from the cortex into interpretable speech parameters and a novel differentiable Speech Synthesizer that maps speech parameters to spectrograms. We develop a companion audio-to-audio auto-encoder consisting of a Speech Encoder and the same Speech Synthesizer to generate reference speech parameters to facilitate the training of the ECoG Decoder. This framework generates natural-sounding speech and is highly reproducible across a large cohort of participants (n=48). We provide two-stage training **pipeline** with visualization tools.
 

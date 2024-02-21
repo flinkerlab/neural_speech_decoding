@@ -102,12 +102,10 @@ Based on [Observation and assessment of acoustic contamination of electrophysiol
 
 In `model.py`
 
-```dotnetcli
 - GHMR(`class`): Gradient Harmonized Single-stage Detector, used for balance data distributions
 - spectrogram_loss(`func`): given ground truth and decoded spectrogram, calculate difference loss in multi scales
 - run_a2a_loss: loss function for Speech to Speech decoding
-- run_components_loss:loss function for ECoG to Speech decoding
-```
+- run_components_loss: loss function for ECoG to Speech decoding
 
 In `networks.py`
 

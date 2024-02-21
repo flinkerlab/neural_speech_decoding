@@ -423,7 +423,7 @@ class Model(nn.Module):
         )
         return components
 
-    def lae(
+    def spectrogram_loss(
         self,
         spec,
         rec,
@@ -537,7 +537,6 @@ class Model(nn.Module):
         rec,
         spec,
         tracker,
-        encoder_guide,
         components_ecog,
         components_guide,
         alpha,
@@ -546,14 +545,14 @@ class Model(nn.Module):
         on_stage,
     ):
         """
-        the core function for ECoG to Speech decoding (step2)
+        the core loss function for ECoG to Speech decoding (step2)
         calculate component loss with spectrogram encoded components and ECoG decoded components
         """
         if self.spec_sup:
             '''
             original and reconstructed linear spectrogram loss using function `lae`
             '''
-            Lrec = 80 * self.lae(
+            Lrec = 80 * self.spectrogram_loss(
                     rec, spec, tracker=tracker, amp=False, suffix="1", MTF=False
                 )
         else:
@@ -576,7 +575,7 @@ class Model(nn.Module):
             self.noise_db,
             self.max_db,
         )
-        Lrec += 80 * self.lae(rec_mel, spec_mel, tracker=tracker, amp=False, suffix="2")
+        Lrec += 80 * self.spectrogram_loss(rec_mel, spec_mel, tracker=tracker, amp=False, suffix="2")
         
         #stoi loss
         if self.use_stoi:
@@ -841,7 +840,7 @@ class Model(nn.Module):
                 if self.ghm_loss:
                     diff = (
                         alpha["amplitudes"]
-                        * 540 * self.lae(tmp_target, tmp_ecog, reweight=weight)
+                        * 540 * self.spectrogram_loss(tmp_target, tmp_ecog, reweight=weight)
                     )
                 else:
                     diff = (
@@ -1243,7 +1242,7 @@ class Model(nn.Module):
         on_stage_wider,
         on_stage):
         """
-        the core function for Speech to Speech decoding (step1)
+        the core loss function for Speech to Speech decoding (step1)
         calculate unsupervised and supervised losses within a2a
         """
         freq_cord2 = torch.arange(self.spec_chans + 1).reshape(
@@ -1259,7 +1258,7 @@ class Model(nn.Module):
             / 440
             * 7
         )
-        Lae = 8 * self.lae(
+        Lae = 8 * self.spectrogram_loss(
             rec * freq_linear_reweighting,
             spec * freq_linear_reweighting,
             tracker=tracker,
@@ -1316,7 +1315,7 @@ class Model(nn.Module):
                 self.max_db,
             )
             #spectrogram reconstruction loss (mel-scale)
-            Lae += 8 * self.lae(
+            Lae += 8 * self.spectrogram_loss(
                 rec_mel * freq_linear_reweighting2,
                 spec_mel * freq_linear_reweighting2,
                 tracker=tracker,
@@ -1442,7 +1441,7 @@ class Model(nn.Module):
                 enable_bgnoise=False,
                 onstage=on_stage,
             )
-            Lae_denoise = 20 * self.lae(
+            Lae_denoise = 20 * self.spectrogram_loss(
                 rec_denoise * freq_linear_reweighting * explosive,
                 x_denoise * freq_linear_reweighting * explosive,
             )
@@ -1524,7 +1523,7 @@ class Model(nn.Module):
                 (components_enc["f0_hz"] / 200 - components["f0_hz"] / 200) ** 2
             )
             rec_cycle = self.decoder.forward(components_enc, onstage=on_stage)
-            Lae += self.lae(
+            Lae += self.spectrogram_loss(
                 rec_shift * freq_linear_reweighting,
                 rec_cycle * freq_linear_reweighting,
                 tracker=tracker,
@@ -1687,7 +1686,6 @@ class Model(nn.Module):
         on_stage_wider,
         ae=True,
         tracker=None,
-        encoder_guide=True,
         x_mel=None,
         x_denoise=None,
         pitch_aug=False,
@@ -1783,7 +1781,6 @@ class Model(nn.Module):
                     rec,
                     spec,
                     tracker,
-                    encoder_guide,
                     components_ecog,
                     components_guide,
                     alpha,
@@ -1797,7 +1794,6 @@ class Model(nn.Module):
                         rec1,
                         rec,
                         tracker,
-                        encoder_guide,
                         components_ecog,
                         components_ecog1,
                         alpha,
@@ -1809,7 +1805,6 @@ class Model(nn.Module):
                         rec1,
                         spec,
                         tracker,
-                        encoder_guide,
                         components_ecog1,
                         components_guide,
                         alpha,

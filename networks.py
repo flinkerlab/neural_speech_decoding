@@ -1336,8 +1336,6 @@ class FormantSysth(nn.Module):
             return speech
 
 
-
-
 @ENCODERS.register("EncoderFormant")
 class FormantEncoder(nn.Module):
     def __init__(
@@ -2215,7 +2213,7 @@ class BasicRNN(torch.nn.Module):
 
 
 @ECOG_DECODER.register("ECoGMapping_ResNet")
-class ECoGMapping_Bottleneck_ran(nn.Module):
+class ECoGMapping_Bottleneck(nn.Module):
     def __init__(
         self,
         n_mels,
@@ -2230,7 +2228,7 @@ class ECoGMapping_Bottleneck_ran(nn.Module):
         network_db=False,
         latent_channel=32,
     ):
-        super(ECoGMapping_Bottleneck_ran, self).__init__()
+        super(ECoGMapping_Bottleneck, self).__init__()
         self.causal = causal
         self.anticausal = anticausal
         causal_ = [1, 0, 0] if causal else False
@@ -2358,7 +2356,7 @@ class ECoGMapping_Bottleneck_ran(nn.Module):
 
 
 @ECOG_DECODER.register("ECoGMapping_RNN")
-class ECoGMappingRNN_ran(torch.nn.Module):
+class ECoGMappingRNN(torch.nn.Module):
     """Model used to predict motion traces and speech features from ECoG data using Transformer"""
 
     def __init__(
@@ -2369,13 +2367,11 @@ class ECoGMappingRNN_ran(torch.nn.Module):
         n_layers=3,
         n_rnn_units=128,
         max_sequence_length=500,
-        bidirectional=False,
         n_output_features=256,
         batch_first=True,
         dropout=0.5,
         use_final_linear_layer=False,
         normalize_inputs=False,
-        out_channels=None,
         n_mels=32,
         network_db=False,
         causal=False,
@@ -2383,10 +2379,9 @@ class ECoGMappingRNN_ran(torch.nn.Module):
         n_formants_noise=1,
         anticausal=False,
         compute_db_loudness=False,
-        pre_articulate=False,
         GR=False,
     ):
-        super(ECoGMappingRNN_ran, self).__init__()
+        super(ECoGMappingRNN, self).__init__()
 
         # params
         self.n_classes = n_classes
@@ -2483,7 +2478,6 @@ class ECoGMapping_3D_SWIN(nn.Module):
         super(ECoGMapping_3D_SWIN, self).__init__()
         self.causal = causal
         self.anticausal = anticausal
-        causal_ = [1, 0, 0] if causal else False
         self.n_formants = n_formants
         self.n_mels = n_mels
         self.n_formants_noise = n_formants_noise

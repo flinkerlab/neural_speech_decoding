@@ -29,15 +29,13 @@ conda activate Neural_Speech
 # Install requirements
 conda install pytorch torchvision torchaudio cudatoolkit=11 -c pytorch -y
 
-# Clone SimMIM
+# Clone NSD
 git clone https://github.com/james20141606/neural_speech_decoding
 cd neural_speech_decoding
 
 # Install other requirements
 pip install -r requirements.txt
 ```
-
-
 
 ## Data
 
@@ -100,6 +98,26 @@ We train 60 epochs for Speech to Speech and ECoG to Speech. Running on one A100 
 ## Contamination analysis
 Based on [Observation and assessment of acoustic contamination of electrophysiological brain signals during speech production and sound perception](https://iopscience.iop.org/article/10.1088/1741-2552/abb25e). We did contamination analysis in [contamination_analysis](contamination_analysis)
 
+## Some modules explanation
+
+In `model.py`
+
+```dotnetcli
+GHMR: Gradient Harmonized Single-stage Detector, used for balance data distributions
+spectrogram_loss: given ground truth and decoded spectrogram, calculate difference loss in multi scales
+run_a2a_loss: loss function for Speech to Speech decoding
+run_components_loss:loss function for ECoG to Speech decoding
+```
+
+In `networks.py`
+
+```dotnetcli
+FormantEncoder (registered as EncoderFormant): the Speech Encoder
+FormantSysth (registered as GeneratorFormant): the Speech Synthesizer
+ECoGMapping_Bottleneck (registered as ECoGMapping_ResNet): the ECoG Decoder using ResNet as backbone
+ECoGMappingRNN (registered as ECoGMapping_RNN): the ECoG Decoder using RNN as backbone
+ECoGMapping_3D_SWIN (registered as ECoGMapping_3D_SWIN): the ECoG Decoder using 3D SWIN as backbone
+```
 
 ## Citing Our Work
 ```dotnetcli

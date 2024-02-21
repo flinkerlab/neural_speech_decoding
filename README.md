@@ -103,21 +103,20 @@ Based on [Observation and assessment of acoustic contamination of electrophysiol
 In `model.py`
 
 ```dotnetcli
-GHMR: Gradient Harmonized Single-stage Detector, used for balance data distributions
-spectrogram_loss: given ground truth and decoded spectrogram, calculate difference loss in multi scales
-run_a2a_loss: loss function for Speech to Speech decoding
-run_components_loss:loss function for ECoG to Speech decoding
+- GHMR(`class`): Gradient Harmonized Single-stage Detector, used for balance data distributions
+- spectrogram_loss(`func`): given ground truth and decoded spectrogram, calculate difference loss in multi scales
+- run_a2a_loss: loss function for Speech to Speech decoding
+- run_components_loss:loss function for ECoG to Speech decoding
 ```
 
 In `networks.py`
 
-```dotnetcli
-FormantEncoder (registered as EncoderFormant): the Speech Encoder
-FormantSysth (registered as GeneratorFormant): the Speech Synthesizer
-ECoGMapping_Bottleneck (registered as ECoGMapping_ResNet): the ECoG Decoder using ResNet as backbone
-ECoGMappingRNN (registered as ECoGMapping_RNN): the ECoG Decoder using RNN as backbone
-ECoGMapping_3D_SWIN (registered as ECoGMapping_3D_SWIN): the ECoG Decoder using 3D SWIN as backbone
-```
+- FormantEncoder (`class` registered as EncoderFormant): the Speech Encoder
+- FormantSysth (registered as GeneratorFormant): the Speech Synthesizer
+- ECoGMapping_Bottleneck (registered as ECoGMapping_ResNet): the ECoG Decoder using ResNet as backbone
+- ECoGMappingRNN (registered as ECoGMapping_RNN): the ECoG Decoder using RNN as backbone
+- ECoGMapping_3D_SWIN (registered as ECoGMapping_3D_SWIN): the ECoG Decoder using 3D SWIN as backbone
+
 
 ## Citing Our Work
 ```dotnetcli

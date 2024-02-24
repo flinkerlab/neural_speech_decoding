@@ -1743,14 +1743,12 @@ class Model(nn.Module):
                 rec, components_ecog = self.generate_fromecog(
                     ecog,
                     return_components=True,
-                    gender=gender,
                     onstage=on_stage,
                 )
                 if self.rdropout != 0:
                     rec1, components_ecog1 = self.generate_fromecog(
                         ecog,
                         return_components=True,
-                        gender=gender,
                         onstage=on_stage,
                     )
 

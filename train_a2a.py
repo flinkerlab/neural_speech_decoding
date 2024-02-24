@@ -218,17 +218,11 @@ parser.add_argument(
     default=0,
     help="network_db use or not, change in net_formant",
 )
-parser.add_argument(
-    "--consistency_loss", type=int, default=0, help="consistency_loss use or not "
-)
 parser.add_argument("--delta_time", type=int, default=0, help="delta_time use or not ")
 parser.add_argument("--delta_freq", type=int, default=0, help="delta_freq use or not ")
 parser.add_argument("--cumsum", type=int, default=0, help="cumsum use or not ")
 parser.add_argument("--distill", type=int, default=0, help="distill use or not ")
 parser.add_argument("--noise_db", type=float, default=-50, help="distill use or not ")
-parser.add_argument(
-    "--return_filtershape", type=int, default=0, help="return_filtershape or not "
-)
 parser.add_argument("--classic_pe", type=int, default=0, help="classic_pe use or not ")
 parser.add_argument(
     "--temporal_down_before",
@@ -327,7 +321,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
         f0_midi=cfg.MODEL.f0_midi,
         alpha_db=cfg.MODEL.alpha_db,
         network_db=cfg.MODEL.network_db,
-        consistency_loss=cfg.MODEL.consistency_loss,
         delta_time=cfg.MODEL.delta_time,
         delta_freq=cfg.MODEL.delta_freq,
         cumsum=cfg.MODEL.cumsum,
@@ -385,7 +378,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
         f0_midi=cfg.MODEL.f0_midi,
         alpha_db=cfg.MODEL.alpha_db,
         network_db=cfg.MODEL.network_db,
-        consistency_loss=cfg.MODEL.consistency_loss,
         delta_time=cfg.MODEL.delta_time,
         delta_freq=cfg.MODEL.delta_freq,
         cumsum=cfg.MODEL.cumsum,

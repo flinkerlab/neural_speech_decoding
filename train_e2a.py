@@ -780,7 +780,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 tracker=tracker_test,
                 pitch_aug=False,
                 duomask=duomask,
-                debug=False,
                 x_amp=sample_spec_amp_test_all[subject],
                 hamonic_bias=False,
                 gender=gender_test_all[subject],

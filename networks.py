@@ -1377,8 +1377,6 @@ class FormantEncoder(nn.Module):
             [1, 3, 1]
         )
         self.patient = patient
-        print("patient for audio encoder:", patient)
-        print("gender_patient", gender_patient)
         if unified:
             self.formant_freq_limits_abs = torch.tensor(
                 [950.0, 3400.0, 3800.0, 5000.0, 6000.0, 7500.0]

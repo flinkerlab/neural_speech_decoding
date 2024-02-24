@@ -767,17 +767,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
                         w_classifier=cfg.MODEL.W_CLASSIFIER,
                     )
 
-        #test
         for subject in test_subject_info:
-            print(
-                2
-                ** (
-                    torch.tanh(
-                        model_all[subject].encoder.formant_bandwitdh_slop
-                    )
-                )
-            )
-            print("save test result!")
 
             model_all[subject].eval()
             Lrec = model_all[subject](
@@ -834,8 +824,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     seq_out_start=initial,
                     suffix=subject,
                 )
-
-        
 
 if __name__ == "__main__":
     gpu_count = torch.cuda.device_count()

@@ -582,7 +582,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
     x_amp_from_denoise = False
     (
         sample_wave_test_all,
-        sample_wave_denoise_test_all,
         sample_voice_test_all,
         sample_unvoice_test_all,
         sample_semivoice_test_all,
@@ -601,9 +600,8 @@ def train(cfg, logger, local_rank, world_size, distributed):
         on_stage_test_all,
         on_stage_wider_test_all,
         sample_spec_test2_all,
-        sample_region_test_all,
     ) = (
-        {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
+        {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
     )
     for subject in test_subject_info:
         dataset_test_all[subject].reset(
@@ -686,9 +684,8 @@ def train(cfg, logger, local_rank, world_size, distributed):
             )
     duomask = True
     n_iter = 0
-    for epoch in range(cfg.TRAIN.TRAIN_EPOCHS):
+    for epoch in tqdm(range(cfg.TRAIN.TRAIN_EPOCHS)):
         model.train()
-        need_permute = False
         i = 0
         batch_size = args_.batch_size
         for sample_dict_train in tqdm(iter(dataset.iterator)):
@@ -898,7 +895,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
                         x_amp=sample_spec_amp_test_all[subject],
                         gender=gender_test_all[subject],
                         sample_wave=sample_wave_test_all[subject],
-                        sample_wave_denoise=None,#sample_wave_denoise_test_all[subject],
+                        sample_wave_denoise=None,
                         on_stage_wider=on_stage_test_all[subject],
                         suffix=subject,
                     )

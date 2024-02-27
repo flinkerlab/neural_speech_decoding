@@ -2,7 +2,7 @@
 
 By Xupeng Chen, Ran Wang, Amirhossein Khalilian-Gourtani, Leyao Yu, Patricia Dugan, Daniel Friedman, Werner Doyle, Orrin Devinsky, Yao Wang, Adeen Flinker
 
-[![DOI](https://zenodo.org/badge/644128128.svg)](https://zenodo.org/doi/10.5281/zenodo.10685177)
+[![DOI](https://zenodo.org/badge/762555618.svg)](https://zenodo.org/doi/10.5281/zenodo.10719427)
 
 ## DEMO
 

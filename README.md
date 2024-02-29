@@ -30,7 +30,7 @@ conda activate Neural_Speech
 conda install pytorch torchvision torchaudio cudatoolkit=11 -c pytorch -y
 
 # Clone NSD
-git clone https://github.com/james20141606/neural_speech_decoding
+git clone https://github.com/flinkerlab/neural_speech_decoding
 cd neural_speech_decoding
 
 # Install other requirements

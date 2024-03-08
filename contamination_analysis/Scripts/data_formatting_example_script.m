@@ -15,7 +15,7 @@ addpath(genpath('../Toolbox/'));
 
 fs = 512; % sampling frequency (Hz)
 output_path_root = '/Users/james/contamination/final_codes/';
-DIR = {'NY742/'};
+DIR = {'HB02/'};
 for j = 1:length(DIR)
         if exist([output_path_root, 'data/mat/',DIR{j},'/test_ecog_data.mat'], 'file') == 0
             disp( 'file not exist')

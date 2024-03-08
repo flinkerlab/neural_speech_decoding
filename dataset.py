@@ -207,7 +207,7 @@ class ECoGDataset(Dataset):
 class TFRecordsDataset:
     def __init__(self, cfg, logger, rank=0, world_size=1, buffer_size_mb=200,data_dir = 'example_data/',\
         infer=False, channels=3, seed=None, train=True, needs_labels=False,param=None,\
-            ReshapeAsGrid=None,SUBJECT='NY742',rearrange_elec=False,low_density = True,\
+            ReshapeAsGrid=None,SUBJECT='HB02',rearrange_elec=False,low_density = True,\
                 process_ecog = True, formant_label = False, pitch_label = False, \
                     intensity_label = False,DEBUG=False,allsubj_param=None,repeattimes=128):
         self.param = param

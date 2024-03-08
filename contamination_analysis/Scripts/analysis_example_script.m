@@ -10,7 +10,7 @@
 addpath(genpath('/Users/james/contamination/Toolbox/'));
 set(gcf,'visible','off')
 %% Global parameters
-DIR = {'NY742'}
+DIR = {'HB02'}
 for j = 1:length(DIR)
     sample = DIR{j}
     disp(sample)

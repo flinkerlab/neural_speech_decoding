@@ -246,7 +246,7 @@ def load_model_checkpoint(
     tracker=None,
     tracker_test=None,
     dataset_all=None,
-    subject="NY742",
+    subject="HB02",
     load_dir="",
     single_patient_mapping=0,param=None
 ):

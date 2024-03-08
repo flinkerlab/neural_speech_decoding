@@ -1352,7 +1352,7 @@ class FormantEncoder(nn.Module):
         broud=True,
         power_synth=False,
         hop_length=128,
-        patient="NY742",
+        patient="HB02",
         gender_patient="Female",
         larger_capacity=False,
         unified=False,

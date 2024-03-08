@@ -19,6 +19,6 @@
         "FRICATIVE": ["ch","s","sh","th","dh","jh","z","zh"]
     },
     "Subj":{
-     "NY742": {"Density": "HB", "Task": ["AudN", "AudRep", "PicN", "SenComp", "VisRead"], 
+     "HB02": {"Density": "HB", "Task": ["AudN", "AudRep", "PicN", "SenComp", "VisRead"], 
      "Gender": "Female", "Brain":"left"}}
      }

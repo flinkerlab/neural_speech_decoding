@@ -255,7 +255,7 @@ class Model(nn.Module):
         n_filter_samples=40,
         dynamic_filter_shape=False,
         learnedbandwidth=False,
-        patient="NY742",
+        patient="HB02",
         rdropout=0,  #https://arxiv.org/abs/2106.14448
         return_filtershape=False,
         spec_fr=125,

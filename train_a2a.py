@@ -49,8 +49,8 @@ parser.add_argument(
 parser.add_argument(
     "--subject",
     type=str,
-    default="NY668",
-    help="subject to use, HB : NY717,NY742,NY749,NY798,NY829; LD : NY704,NY708,NY741,NY743,NY748,NY668",
+    default="NYxxx",
+    help="subject to use",
 )
 parser.add_argument(
     "--trainsubject",

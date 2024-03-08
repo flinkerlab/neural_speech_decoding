@@ -9,7 +9,7 @@
 	"DOWN_TF_FS": 125,
 	"DOWN_ECOG_FS": 125,
 	"Subj":{
-	"NY742":{
+	"HB02":{
 		"Crop": null,
 		"Task_comment": ["VisRead","SenComp","PicN","AudN","AudRep","VisRead_imagine","SenComp_imagine","PicN_imagine","AudRep_imagine","AudN_imagine"],
 		"TestNum_comment":[10,10,10,10,10],

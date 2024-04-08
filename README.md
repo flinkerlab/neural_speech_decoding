@@ -2,7 +2,11 @@
 
 By Xupeng Chen, Ran Wang, Amirhossein Khalilian-Gourtani, Leyao Yu, Patricia Dugan, Daniel Friedman, Werner Doyle, Orrin Devinsky, Yao Wang, Adeen Flinker
 
-[![DOI](https://zenodo.org/badge/762555618.svg)](https://zenodo.org/doi/10.5281/zenodo.10719427)
+## Our Paper is Online!
+[Paper Published in Nature Machine Intelligence](https://www.nature.com/articles/s42256-024-00824-8#citeas)
+
+
+[![Software DOI](https://zenodo.org/badge/762555618.svg)](https://zenodo.org/doi/10.5281/zenodo.10719427)
 
 ## DEMO
 
@@ -121,9 +125,8 @@ In `networks.py`
 @article{chen2023neural,
   title={A Neural Speech Decoding Framework Leveraging Deep Learning and Speech Synthesis},
   author={Chen, Xupeng and Wang, Ran and Khalilian-Gourtani, Amirhossein and Yu, Leyao and Dugan, Patricia and Friedman, Daniel and Doyle, Werner and Devinsky, Orrin and Wang, Yao and Flinker, Adeen},
-  journal={bioRxiv},
-  pages={2023--09},
-  year={2023},
-  publisher={Cold Spring Harbor Laboratory}
+  journal={Nature Machine Intelligence},
+  year={2024},
+  publisher={Nature Publishing Group UK London}
 }
 ```

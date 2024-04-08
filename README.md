@@ -4,6 +4,7 @@ By Xupeng Chen, Ran Wang, Amirhossein Khalilian-Gourtani, Leyao Yu, Patricia Dug
 
 ## Our Paper is Online!
 [Paper Published in Nature Machine Intelligence](https://www.nature.com/articles/s42256-024-00824-8)
+
 [![DOI - 10.1038/s42256-024-00824-8](https://img.shields.io/badge/DOI-10.1038%2Fs42256--024--00824--8-blue)](https://www.nature.com/articles/s42256-024-00824-8)
 
 
